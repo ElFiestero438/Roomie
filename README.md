@@ -27,7 +27,7 @@ Permite crear una nueva cuenta ingresando los datos personales del usuario.
 - Creación y confirmación de contraseña.
 - Regreso al inicio de sesión.
 
-![Pantalla de registro](C:\Users\USER\Roomie\prototipo\registro.png)
+![Pantalla de registro](.\prototipo\registro.png)
 
 ---
 
