@@ -12,7 +12,7 @@ Permite al usuario ingresar a Roomie utilizando su correo electrónico y contras
 - Acceso al registro.
 - Recuperación de contraseña.
 
-![Pantalla de inicio de sesión](./prototipo/01-login.png)
+![Pantalla de inicio de sesión](./prototipo/login.png)
 
 ---
 
@@ -31,21 +31,7 @@ Permite crear una nueva cuenta ingresando los datos personales del usuario.
 
 ---
 
-### 3. Recuperación de contraseña
-
-**Descripción:**  
-Permite solicitar la recuperación de la contraseña mediante el correo electrónico registrado.
-
-**Funciones principales:**
-- Ingreso del correo electrónico.
-- Solicitud de recuperación.
-- Regreso al inicio de sesión.
-
-![Pantalla de recuperación](./prototipo/03-recuperacion.png)
-
----
-
-### 4. Home / Inicio
+### 3. Home / Inicio
 
 **Descripción:**  
 Es la pantalla principal de Roomie. Presenta un resumen de la vivienda y permite acceder rápidamente a las principales funciones de la aplicación.
@@ -57,11 +43,11 @@ Es la pantalla principal de Roomie. Presenta un resumen de la vivienda y permite
 - Acceso a gastos, tareas, compras y roomies.
 - Acceso a notificaciones.
 
-![Pantalla principal](./prototipo/04-home.png)
+![Pantalla principal](./prototipo/home.png)
 
 ---
 
-### 5. Gastos
+### 4. Gastos
 
 **Descripción:**  
 Permite administrar los gastos realizados dentro de la vivienda y consultar los saldos entre los integrantes.
@@ -73,11 +59,11 @@ Permite administrar los gastos realizados dentro de la vivienda y consultar los 
 - Filtrar gastos pendientes y pagados.
 - Consultar detalles de los gastos.
 
-![Pantalla de gastos](./prototipo/05-gastos.png)
+![Pantalla de gastos](./prototipo/gastos.png)
 
 ---
 
-### 6. Tareas
+### 5. Tareas
 
 **Descripción:**  
 Permite organizar las responsabilidades y tareas de la vivienda.
@@ -90,11 +76,11 @@ Permite organizar las responsabilidades y tareas de la vivienda.
 - Marcar tareas como completadas.
 - Filtrar tareas pendientes y completadas.
 
-![Pantalla de tareas](./prototipo/06-tareas.png)
+![Pantalla de tareas](./prototipo/tareas.png)
 
 ---
 
-### 7. Lista de compras
+### 6. Lista de compras
 
 **Descripción:**  
 Permite administrar los productos que deben comprarse para la vivienda.
@@ -107,11 +93,11 @@ Permite administrar los productos que deben comprarse para la vivienda.
 - Eliminar productos.
 - Filtrar productos.
 
-![Pantalla de lista de compras](./prototipo/07-compras.png)
+![Pantalla de lista de compras](./prototipo/compras.png)
 
 ---
 
-### 8. Roomies
+### 7. Roomies
 
 **Descripción:**  
 Permite consultar y administrar los integrantes de la vivienda compartida.
@@ -123,11 +109,11 @@ Permite consultar y administrar los integrantes de la vivienda compartida.
 - Invitar nuevos roomies.
 - Administrar integrantes.
 
-![Pantalla de roomies](./prototipo/08-roomies.png)
+![Pantalla de roomies](./prototipo/roomies.png)
 
 ---
 
-### 9. Notificaciones
+### 8. Notificaciones
 
 **Descripción:**  
 Centraliza los avisos relacionados con las actividades de la vivienda.
@@ -138,11 +124,11 @@ Centraliza los avisos relacionados con las actividades de la vivienda.
 - Acceder a la sección relacionada con cada notificación.
 - Eliminar notificaciones.
 
-![Pantalla de notificaciones](./prototipo/09-notificaciones.png)
+![Pantalla de notificaciones](./prototipo/notificaciones.png)
 
 ---
 
-### 10. Perfil
+### 9. Perfil
 
 **Descripción:**  
 Permite administrar la información personal y algunas configuraciones de la cuenta.
@@ -154,7 +140,7 @@ Permite administrar la información personal y algunas configuraciones de la cue
 - Acceder a opciones de cuenta.
 - Cerrar sesión.
 
-![Pantalla de perfil](./prototipo/10-perfil.png)
+![Pantalla de perfil](./prototipo/perfil.png)
 
 ---
 
