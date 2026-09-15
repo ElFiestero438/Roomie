@@ -1,56 +1,175 @@
-# Welcome to your Expo app 👋
+## Prototipo visual
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+El prototipo visual de Roomie representa las principales pantallas de la aplicación y el flujo de navegación entre sus diferentes funcionalidades.
 
-## Get started
+### 1. Inicio de sesión
 
-1. Install dependencies
+**Descripción:**  
+Permite al usuario ingresar a Roomie utilizando su correo electrónico y contraseña. También permite acceder al registro de una nueva cuenta o a la recuperación de contraseña.
 
-   ```bash
-   npm install
-   ```
+**Funciones principales:**
+- Inicio de sesión.
+- Acceso al registro.
+- Recuperación de contraseña.
 
-2. Start the app
+![Pantalla de inicio de sesión](./prototipo/01-login.png)
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+### 2. Registro
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+**Descripción:**  
+Permite crear una nueva cuenta ingresando los datos personales del usuario.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+**Funciones principales:**
+- Registro de usuario.
+- Ingreso de nombre y correo.
+- Creación y confirmación de contraseña.
+- Regreso al inicio de sesión.
 
-## Get a fresh project
+![Pantalla de registro](./prototipo/02-registro.png)
 
-When you're ready, run:
+---
 
-```bash
-npm run reset-project
-```
+### 3. Recuperación de contraseña
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**Descripción:**  
+Permite solicitar la recuperación de la contraseña mediante el correo electrónico registrado.
 
-### Other setup steps
+**Funciones principales:**
+- Ingreso del correo electrónico.
+- Solicitud de recuperación.
+- Regreso al inicio de sesión.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+![Pantalla de recuperación](./prototipo/03-recuperacion.png)
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+### 4. Home / Inicio
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+**Descripción:**  
+Es la pantalla principal de Roomie. Presenta un resumen de la vivienda y permite acceder rápidamente a las principales funciones de la aplicación.
 
-## Join the community
+**Funciones principales:**
+- Resumen de gastos.
+- Resumen de tareas.
+- Información de los integrantes.
+- Acceso a gastos, tareas, compras y roomies.
+- Acceso a notificaciones.
 
-Join our community of developers creating universal apps.
+![Pantalla principal](./prototipo/04-home.png)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+### 5. Gastos
+
+**Descripción:**  
+Permite administrar los gastos realizados dentro de la vivienda y consultar los saldos entre los integrantes.
+
+**Funciones principales:**
+- Registrar gastos.
+- Consultar gastos.
+- Consultar deudas y saldos.
+- Filtrar gastos pendientes y pagados.
+- Consultar detalles de los gastos.
+
+![Pantalla de gastos](./prototipo/05-gastos.png)
+
+---
+
+### 6. Tareas
+
+**Descripción:**  
+Permite organizar las responsabilidades y tareas de la vivienda.
+
+**Funciones principales:**
+- Crear tareas.
+- Asignar responsables.
+- Establecer prioridades.
+- Definir fechas.
+- Marcar tareas como completadas.
+- Filtrar tareas pendientes y completadas.
+
+![Pantalla de tareas](./prototipo/06-tareas.png)
+
+---
+
+### 7. Lista de compras
+
+**Descripción:**  
+Permite administrar los productos que deben comprarse para la vivienda.
+
+**Funciones principales:**
+- Agregar productos.
+- Definir cantidades.
+- Clasificar productos por categorías.
+- Marcar productos como comprados.
+- Eliminar productos.
+- Filtrar productos.
+
+![Pantalla de lista de compras](./prototipo/07-compras.png)
+
+---
+
+### 8. Roomies
+
+**Descripción:**  
+Permite consultar y administrar los integrantes de la vivienda compartida.
+
+**Funciones principales:**
+- Consultar integrantes.
+- Visualizar roles.
+- Consultar balances.
+- Invitar nuevos roomies.
+- Administrar integrantes.
+
+![Pantalla de roomies](./prototipo/08-roomies.png)
+
+---
+
+### 9. Notificaciones
+
+**Descripción:**  
+Centraliza los avisos relacionados con las actividades de la vivienda.
+
+**Funciones principales:**
+- Consultar notificaciones.
+- Marcar notificaciones como leídas.
+- Acceder a la sección relacionada con cada notificación.
+- Eliminar notificaciones.
+
+![Pantalla de notificaciones](./prototipo/09-notificaciones.png)
+
+---
+
+### 10. Perfil
+
+**Descripción:**  
+Permite administrar la información personal y algunas configuraciones de la cuenta.
+
+**Funciones principales:**
+- Consultar información personal.
+- Editar datos.
+- Configurar notificaciones.
+- Acceder a opciones de cuenta.
+- Cerrar sesión.
+
+![Pantalla de perfil](./prototipo/10-perfil.png)
+
+---
+
+## Colorimetría
+
+La interfaz de Roomie utiliza una combinación de rojo, negro, blanco y tonos grises para mantener una apariencia moderna, sencilla y consistente.
+
+| Color | Código HEX | Uso |
+|---|---|---|
+| Rojo principal | `#E21B2D` | Botones, acciones principales y elementos destacados |
+| Negro | `#111111` | Títulos y textos principales |
+| Gris | `#6B7280` | Textos secundarios |
+| Gris claro | `#F3F4F6` | Fondos y tarjetas |
+| Blanco | `#FFFFFF` | Fondo principal y contraste |
+
+## Flujo de navegación
+
+El flujo principal de Roomie comienza en el **Inicio de sesión**. Desde allí, el usuario puede registrarse o recuperar su contraseña. Una vez autenticado, accede al **Home**, desde donde puede navegar hacia **Gastos, Tareas, Lista de compras, Roomies y Notificaciones**. La sección **Perfil** permite modificar información personal y cerrar sesión, regresando nuevamente al inicio de sesión.
