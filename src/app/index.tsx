@@ -1,98 +1,231 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+  const handleLogin = () => {
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail || !password) {
+      Alert.alert('Campos requeridos', 'Ingresa tu correo y contraseña.');
+      return;
+    }
+
+    if (!cleanEmail.includes('@')) {
+      Alert.alert('Correo inválido', 'Ingresa un correo electrónico válido.');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert(
+        'Contraseña inválida',
+        'La contraseña debe tener mínimo 6 caracteres.'
+      );
+      return;
+    }
+
+    // Por ahora no usamos Firebase.
+    // Cualquier correo válido y contraseña de 6+ caracteres permite entrar.
+    router.replace('/home');
+  };
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.content}>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+          <View style={styles.logoContainer}>
+            <View style={styles.logo}>
+              <Text style={styles.logoText}>R</Text>
+            </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+            <Text style={styles.title}>Roomie</Text>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+            <Text style={styles.subtitle}>
+              Vivir juntos, organizarse mejor.
+            </Text>
+          </View>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+          <View style={styles.form}>
+
+            <Text style={styles.label}>Correo electrónico</Text>
+
+            <TextInput
+              style={styles.input}
+              placeholder="ejemplo@correo.com"
+              placeholderTextColor="#999"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
+            />
+
+            <Text style={styles.label}>Contraseña</Text>
+
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Ingresa tu contraseña"
+                placeholderTextColor="#999"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+              />
+
+              <Pressable
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.showButton}
+              >
+                <Text style={styles.showText}>
+                  {showPassword ? 'Ocultar' : 'Ver'}
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={handleLogin}
+              style={styles.loginButton}
+            >
+              <Text style={styles.loginButtonText}>
+                Iniciar sesión
+              </Text>
+            </Pressable>
+
+          </View>
+
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
   },
-  safeArea: {
+
+  content: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    paddingHorizontal: 28,
   },
+
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 45,
+  },
+
+  logo: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: '#E21B2D',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+
+  logoText: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '800',
+  },
+
   title: {
-    textAlign: 'center',
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#111111',
   },
-  code: {
-    textTransform: 'uppercase',
+
+  subtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 6,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+
+  form: {
+    width: '100%',
+  },
+
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111111',
+    marginBottom: 8,
+    marginTop: 14,
+  },
+
+  input: {
+    height: 52,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#111111',
+    backgroundColor: '#FFFFFF',
+  },
+
+  passwordContainer: {
+    height: 52,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  passwordInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#111111',
+  },
+
+  showButton: {
+    paddingHorizontal: 14,
+  },
+
+  showText: {
+    color: '#E21B2D',
+    fontWeight: '600',
+  },
+
+  loginButton: {
+    height: 52,
+    backgroundColor: '#E21B2D',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 28,
+  },
+
+  loginButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
