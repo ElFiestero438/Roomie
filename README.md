@@ -12,7 +12,7 @@ Permite al usuario ingresar a Roomie utilizando su correo electrónico y contras
 - Acceso al registro.
 - Recuperación de contraseña.
 
-![Pantalla de inicio de sesión](./prototipo/01-login.png)
+![Pantalla de inicio de sesión](./prototipo/login.png)
 
 ---
 
@@ -27,25 +27,11 @@ Permite crear una nueva cuenta ingresando los datos personales del usuario.
 - Creación y confirmación de contraseña.
 - Regreso al inicio de sesión.
 
-![Pantalla de registro](.\prototipo\registro.png)
+![Pantalla de registro](./prototipo/registro.png)
 
 ---
 
-### 3. Recuperación de contraseña
-
-**Descripción:**  
-Permite solicitar la recuperación de la contraseña mediante el correo electrónico registrado.
-
-**Funciones principales:**
-- Ingreso del correo electrónico.
-- Solicitud de recuperación.
-- Regreso al inicio de sesión.
-
-![Pantalla de recuperación](./prototipo/03-recuperacion.png)
-
----
-
-### 4. Home / Inicio
+### 3. Home / Inicio
 
 **Descripción:**  
 Es la pantalla principal de Roomie. Presenta un resumen de la vivienda y permite acceder rápidamente a las principales funciones de la aplicación.
@@ -57,11 +43,11 @@ Es la pantalla principal de Roomie. Presenta un resumen de la vivienda y permite
 - Acceso a gastos, tareas, compras y roomies.
 - Acceso a notificaciones.
 
-![Pantalla principal](./prototipo/04-home.png)
+![Pantalla principal](./prototipo/home.png)
 
 ---
 
-### 5. Gastos
+### 4. Gastos
 
 **Descripción:**  
 Permite administrar los gastos realizados dentro de la vivienda y consultar los saldos entre los integrantes.
@@ -73,11 +59,11 @@ Permite administrar los gastos realizados dentro de la vivienda y consultar los 
 - Filtrar gastos pendientes y pagados.
 - Consultar detalles de los gastos.
 
-![Pantalla de gastos](./prototipo/05-gastos.png)
+![Pantalla de gastos](./prototipo/gastos.png)
 
 ---
 
-### 6. Tareas
+### 5. Tareas
 
 **Descripción:**  
 Permite organizar las responsabilidades y tareas de la vivienda.
@@ -90,11 +76,11 @@ Permite organizar las responsabilidades y tareas de la vivienda.
 - Marcar tareas como completadas.
 - Filtrar tareas pendientes y completadas.
 
-![Pantalla de tareas](./prototipo/06-tareas.png)
+![Pantalla de tareas](./prototipo/tareas.png)
 
 ---
 
-### 7. Lista de compras
+### 6. Lista de compras
 
 **Descripción:**  
 Permite administrar los productos que deben comprarse para la vivienda.
@@ -107,11 +93,11 @@ Permite administrar los productos que deben comprarse para la vivienda.
 - Eliminar productos.
 - Filtrar productos.
 
-![Pantalla de lista de compras](./prototipo/07-compras.png)
+![Pantalla de lista de compras](./prototipo/compras.png)
 
 ---
 
-### 8. Roomies
+### 7. Roomies
 
 **Descripción:**  
 Permite consultar y administrar los integrantes de la vivienda compartida.
@@ -123,11 +109,11 @@ Permite consultar y administrar los integrantes de la vivienda compartida.
 - Invitar nuevos roomies.
 - Administrar integrantes.
 
-![Pantalla de roomies](./prototipo/08-roomies.png)
+![Pantalla de roomies](./prototipo/roomies.png)
 
 ---
 
-### 9. Notificaciones
+### 8. Notificaciones
 
 **Descripción:**  
 Centraliza los avisos relacionados con las actividades de la vivienda.
@@ -138,11 +124,11 @@ Centraliza los avisos relacionados con las actividades de la vivienda.
 - Acceder a la sección relacionada con cada notificación.
 - Eliminar notificaciones.
 
-![Pantalla de notificaciones](./prototipo/09-notificaciones.png)
+![Pantalla de notificaciones](./prototipo/notificaciones.png)
 
 ---
 
-### 10. Perfil
+### 9. Perfil
 
 **Descripción:**  
 Permite administrar la información personal y algunas configuraciones de la cuenta.
@@ -154,7 +140,7 @@ Permite administrar la información personal y algunas configuraciones de la cue
 - Acceder a opciones de cuenta.
 - Cerrar sesión.
 
-![Pantalla de perfil](./prototipo/10-perfil.png)
+![Pantalla de perfil](./prototipo/perfil.png)
 
 ---
 
@@ -172,4 +158,11 @@ La interfaz de Roomie utiliza una combinación de rojo, negro, blanco y tonos gr
 
 ## Flujo de navegación
 
-El flujo principal de Roomie comienza en el **Inicio de sesión**. Desde allí, el usuario puede registrarse o recuperar su contraseña. Una vez autenticado, accede al **Home**, desde donde puede navegar hacia **Gastos, Tareas, Lista de compras, Roomies y Notificaciones**. La sección **Perfil** permite modificar información personal y cerrar sesión, regresando nuevamente al inicio de sesión.
+El flujo comienza en la pantalla de inicio de sesión, donde el usuario ingresa su correo y contraseña para acceder a la aplicación. Si no tiene una cuenta, selecciona “Crear cuenta” y pasa a la pantalla de registro, donde ingresa sus datos personales. También puede seleccionar “¿Olvidaste tu contraseña?”, que lo dirige a la pantalla de recuperación de contraseña, donde puede solicitar la recuperación de su cuenta y posteriormente regresar al inicio de sesión.
+Al iniciar sesión correctamente, el usuario llega a la pantalla Home, que funciona como el centro principal de la aplicación. Allí puede consultar un resumen de su vivienda, integrantes, gastos, tareas y actividades recientes, además de acceder a las demás funciones de Roomie. Desde esta pantalla puede dirigirse a Gastos, donde consulta, registra y revisa los gastos y saldos entre los integrantes, o a Tareas, donde puede consultar las tareas pendientes y completadas, conocer sus responsables y crear nuevas tareas.
+También desde el Home el usuario puede ingresar a la pantalla Lista de compras, que permite agregar productos, indicar cantidades, clasificarlos y marcarlos como comprados. Por otro lado, la pantalla Roomies permite consultar los integrantes de la vivienda, visualizar sus roles y balances, e invitar nuevos roomies. Estas funciones buscan facilitar la organización de las actividades y responsabilidades compartidas dentro de la vivienda.
+El usuario también puede acceder a la pantalla de Notificaciones, donde consulta avisos relacionados con gastos, tareas, compras y actividades de los integrantes. Al seleccionar una notificación puede dirigirse directamente a la sección relacionada. La navegación entre estas funciones se realiza principalmente mediante la barra de navegación inferior, que permite acceder rápidamente a Inicio, Gastos, Tareas y Perfil.
+Finalmente, en la pantalla Perfil, el usuario puede consultar y modificar sus datos personales, configurar opciones de la cuenta y gestionar las notificaciones. También puede cerrar sesión, acción que lo devuelve a la pantalla de inicio de sesión. De esta manera, Roomie establece un flujo sencillo que permite registrarse, ingresar a la aplicación y gestionar desde un mismo lugar los gastos, tareas, compras, integrantes y notificaciones de una vivienda compartida.
+
+
+Enlace del prototipo visual de figma: https://www.figma.com/design/mAEJ0K5Q88lzq1Q2nfg0na/Prototipo-visual-Roomie?node-id=1011-14&t=NvuFT89AsrsTarG8-1
