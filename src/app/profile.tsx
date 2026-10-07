@@ -1,39 +1,168 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { updateProfile } from 'firebase/auth';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
+import {
+  getFirebaseErrorMessage,
+  logoutUser,
+  resetPassword,
+} from '../firebase/auth';
+import { auth } from '../firebase/config';
+import {
+  createUserProfile,
+  getUserProfile,
+  updateUserProfile,
+} from '../firebase/firestore';
+import { useAuthUser } from '../hooks/useAuthUser';
+
 export default function ProfileScreen() {
-  const [name, setName] = useState('Sebastián');
-  const [email, setEmail] = useState('sebastian@correo.com');
+  const { user, loading: authLoading } = useAuthUser();
+  const uid = user?.uid;
+  const email = user?.email ?? '';
+  const displayName = user?.displayName ?? '';
+
+  const [name, setName] = useState('');
+  const [savedName, setSavedName] = useState('');
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState(true);
 
-  const saveProfile = () => {
-    if (!name.trim()) {
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/');
+    }
+  }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
+
+      let active = true;
+      setLoading(true);
+
+      getUserProfile(uid)
+        .then((profile) => {
+          if (!active) return;
+
+          const currentName = profile?.name ?? displayName;
+          setName(currentName);
+          setSavedName(currentName);
+        })
+        .catch((error) => {
+          Alert.alert(
+            'No se pudo cargar tu perfil',
+            getFirebaseErrorMessage(error)
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [uid, displayName])
+  );
+
+  const saveProfile = async () => {
+    const cleanName = name.trim();
+
+    if (!cleanName) {
       Alert.alert('Error', 'El nombre no puede estar vacío.');
       return;
     }
 
-    if (!email.includes('@')) {
-      Alert.alert('Error', 'Ingresa un correo válido.');
-      return;
-    }
+    if (!uid) return;
 
-    setEditing(false);
+    const provider = user?.providerData.some(
+      (item) => item.providerId === 'google.com'
+    )
+      ? 'google'
+      : 'email';
+
+    try {
+      setSaving(true);
+
+      await createUserProfile(
+        uid,
+        cleanName,
+        email,
+        user?.photoURL ?? null,
+        provider
+      );
+
+      await updateUserProfile(uid, { name: cleanName });
+
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: cleanName,
+        });
+      }
+
+      setName(cleanName);
+      setSavedName(cleanName);
+      setEditing(false);
+
+      Alert.alert(
+        'Perfil actualizado',
+        'Tus datos se actualizaron correctamente.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'No se pudo guardar',
+        getFirebaseErrorMessage(error)
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changePassword = () => {
+    if (!email) return;
 
     Alert.alert(
-      'Perfil actualizado',
-      'Tus datos se actualizaron correctamente.'
+      'Cambiar contraseña',
+      `Te enviaremos un correo a ${email} para que la cambies.`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Enviar correo',
+          onPress: async () => {
+            try {
+              await resetPassword(email);
+
+              Alert.alert(
+                'Correo enviado',
+                'Revisa tu bandeja de entrada.'
+              );
+            } catch (error) {
+              Alert.alert(
+                'No se pudo enviar',
+                getFirebaseErrorMessage(error)
+              );
+            }
+          },
+        },
+      ]
     );
   };
 
@@ -49,7 +178,17 @@ export default function ProfileScreen() {
         {
           text: 'Cerrar sesión',
           style: 'destructive',
-          onPress: () => router.replace('/'),
+          onPress: async () => {
+            try {
+              await logoutUser();
+              router.replace('/');
+            } catch (error) {
+              Alert.alert(
+                'No se pudo cerrar sesión',
+                getFirebaseErrorMessage(error)
+              );
+            }
+          },
         },
       ]
     );
@@ -61,6 +200,19 @@ export default function ProfileScreen() {
       'Esta función estará disponible en la siguiente etapa de Roomie.'
     );
   };
+
+  if (authLoading || loading) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.container,
+          { justifyContent: 'center', alignItems: 'center' },
+        ]}
+      >
+        <ActivityIndicator size="large" color="#E21B2D" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -84,11 +236,13 @@ export default function ProfileScreen() {
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {name.charAt(0).toUpperCase()}
+              {(name.trim().charAt(0) || email.charAt(0) || '?').toUpperCase()}
             </Text>
           </View>
 
-          <Text style={styles.profileName}>{name}</Text>
+          <Text style={styles.profileName}>
+            {name || 'Sin nombre'}
+          </Text>
 
           <Text style={styles.profileEmail}>{email}</Text>
 
@@ -120,13 +274,9 @@ export default function ProfileScreen() {
             <Text style={styles.label}>Correo electrónico</Text>
 
             <TextInput
-              style={[
-                styles.input,
-                !editing && styles.inputDisabled,
-              ]}
+              style={[styles.input, styles.inputDisabled]}
               value={email}
-              onChangeText={setEmail}
-              editable={editing}
+              editable={false}
               keyboardType="email-address"
               autoCapitalize="none"
               placeholder="correo@ejemplo.com"
@@ -139,8 +289,7 @@ export default function ProfileScreen() {
                   style={styles.cancelButton}
                   onPress={() => {
                     setEditing(false);
-                    setName('Sebastián');
-                    setEmail('sebastian@correo.com');
+                    setName(savedName);
                   }}
                 >
                   <Text style={styles.cancelButtonText}>
@@ -151,9 +300,10 @@ export default function ProfileScreen() {
                 <Pressable
                   style={styles.saveButton}
                   onPress={saveProfile}
+                  disabled={saving}
                 >
                   <Text style={styles.saveButtonText}>
-                    Guardar
+                    {saving ? 'Guardando...' : 'Guardar'}
                   </Text>
                 </Pressable>
               </View>
@@ -204,9 +354,7 @@ export default function ProfileScreen() {
           <View style={styles.menuCard}>
             <Pressable
               style={styles.menuItem}
-              onPress={() =>
-                showComingSoon('Cambiar contraseña')
-              }
+              onPress={changePassword}
             >
               <View>
                 <Text style={styles.menuTitle}>
@@ -214,7 +362,7 @@ export default function ProfileScreen() {
                 </Text>
 
                 <Text style={styles.menuDescription}>
-                  Actualiza la contraseña de tu cuenta.
+                  Te enviamos un correo para actualizarla.
                 </Text>
               </View>
 

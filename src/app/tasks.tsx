@@ -1,128 +1,157 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
-type Task = {
-  id: number;
-  title: string;
-  assignedTo: string;
-  priority: string;
-  date: string;
-  completed: boolean;
-};
-
-const roommates = ['Sebastián', 'Carlos', 'Laura', 'Andrés'];
+import type { Roomie, Tarea } from '../firebase/firestore';
+import { getRoomies, getTareas, saveTarea } from '../firebase/firestore';
+import { useAuthUser } from '../hooks/useAuthUser';
 
 export default function TasksScreen() {
+  const { user, loading: authLoading } = useAuthUser();
+  const uid = user?.uid;
+
   const [modalVisible, setModalVisible] = useState(false);
   const [filter, setFilter] = useState('Todas');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [title, setTitle] = useState('');
-  const [assignedTo, setAssignedTo] = useState('Sebastián');
+  const [assignedId, setAssignedId] = useState('');
   const [priority, setPriority] = useState('Media');
   const [date, setDate] = useState('');
 
-  const [tasks, setTasks] = useState<Task[]>([
-    {
-      id: 1,
-      title: 'Limpiar la cocina',
-      assignedTo: 'Sebastián',
-      priority: 'Alta',
-      date: 'Hoy',
-      completed: false,
-    },
-    {
-      id: 2,
-      title: 'Sacar la basura',
-      assignedTo: 'Carlos',
-      priority: 'Media',
-      date: 'Hoy',
-      completed: false,
-    },
-    {
-      id: 3,
-      title: 'Limpiar el baño',
-      assignedTo: 'Laura',
-      priority: 'Baja',
-      date: 'Mañana',
-      completed: false,
-    },
-    {
-      id: 4,
-      title: 'Organizar la sala',
-      assignedTo: 'Andrés',
-      priority: 'Media',
-      date: '10 Sep',
-      completed: true,
-    },
-  ]);
+  const [tasks, setTasks] = useState<Tarea[]>([]);
+  const [roommates, setRoommates] = useState<Roomie[]>([]);
 
-  const pendingTasks = tasks.filter(
-    (task) => !task.completed
-  ).length;
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) {
+        setTasks([]);
+        setRoommates([]);
+        setLoading(false);
+        return;
+      }
 
-  const completedTasks = tasks.filter(
-    (task) => task.completed
-  ).length;
+      let active = true;
+      setLoading(true);
+
+      Promise.all([getTareas(uid), getRoomies(uid)])
+        .then(([loadedTasks, loadedRoomies]) => {
+          if (!active) return;
+
+          setTasks(
+            [...loadedTasks].sort(
+              (a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0)
+            )
+          );
+          setRoommates(loadedRoomies);
+        })
+        .catch((error: any) => {
+          Alert.alert(
+            'No se pudieron cargar las tareas',
+            error?.message ?? 'Intenta de nuevo.'
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [uid])
+  );
+
+  const isLoading = authLoading || loading;
+
+  const pendingTasks = tasks.filter((task) => !task.completada).length;
+  const completedTasks = tasks.filter((task) => task.completada).length;
 
   const filteredTasks = tasks.filter((task) => {
-    if (filter === 'Pendientes') return !task.completed;
-    if (filter === 'Completadas') return task.completed;
+    if (filter === 'Pendientes') return !task.completada;
+    if (filter === 'Completadas') return task.completada;
     return true;
   });
 
-  const toggleTask = (id: number) => {
+  const toggleTask = async (task: Tarea) => {
+    const updated: Tarea = { ...task, completada: !task.completada };
+
     setTasks((current) =>
-      current.map((task) =>
-        task.id === id
-          ? { ...task, completed: !task.completed }
-          : task
-      )
+      current.map((item) => (item.id === task.id ? updated : item))
     );
+
+    if (!uid) return;
+
+    try {
+      await saveTarea(uid, updated);
+    } catch (error: any) {
+      setTasks((current) =>
+        current.map((item) => (item.id === task.id ? task : item))
+      );
+      Alert.alert(
+        'No se pudo actualizar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
   };
 
-  const addTask = () => {
-    if (!title.trim()) {
-      Alert.alert(
-        'Campo incompleto',
-        'Escribe el nombre de la tarea.'
-      );
+  const addTask = async () => {
+    if (!uid) {
+      Alert.alert('Sesión requerida', 'Inicia sesión para crear tareas.');
       return;
     }
 
-    const newTask: Task = {
-      id: Date.now(),
-      title: title.trim(),
-      assignedTo,
-      priority,
-      date: date.trim() || 'Sin fecha',
-      completed: false,
+    if (!title.trim()) {
+      Alert.alert('Campo incompleto', 'Escribe el nombre de la tarea.');
+      return;
+    }
+
+    const roommate = roommates.find((item) => item.id === assignedId);
+
+    const newTask: Tarea = {
+      id: Date.now().toString(),
+      titulo: title.trim(),
+      responsableId: roommate?.id ?? '',
+      responsableNombre: roommate?.nombre ?? '',
+      prioridad: priority,
+      fecha: date.trim() || 'Sin fecha',
+      completada: false,
+      createdAt: Date.now(),
     };
 
-    setTasks((current) => [newTask, ...current]);
+    try {
+      setSaving(true);
+      await saveTarea(uid, newTask);
 
-    setTitle('');
-    setAssignedTo('Sebastián');
-    setPriority('Media');
-    setDate('');
-    setModalVisible(false);
+      setTasks((current) => [newTask, ...current]);
 
-    Alert.alert(
-      'Tarea creada',
-      'La tarea se agregó correctamente.'
-    );
+      setTitle('');
+      setAssignedId('');
+      setPriority('Media');
+      setDate('');
+      setModalVisible(false);
+
+      Alert.alert('Tarea creada', 'La tarea se agregó correctamente.');
+    } catch (error: any) {
+      Alert.alert(
+        'No se pudo guardar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const priorityStyle = (value: string) => {
+  const priorityStyle = (value?: string) => {
     if (value === 'Alta') return styles.highPriority;
     if (value === 'Media') return styles.mediumPriority;
     return styles.lowPriority;
@@ -170,37 +199,30 @@ export default function TasksScreen() {
         </View>
 
         <View style={styles.filterRow}>
-          {['Todas', 'Pendientes', 'Completadas'].map(
-            (item) => (
-              <Pressable
-                key={item}
+          {['Todas', 'Pendientes', 'Completadas'].map((item) => (
+            <Pressable
+              key={item}
+              style={[
+                styles.filterButton,
+                filter === item && styles.filterButtonActive,
+              ]}
+              onPress={() => setFilter(item)}
+            >
+              <Text
                 style={[
-                  styles.filterButton,
-                  filter === item && styles.filterButtonActive,
+                  styles.filterText,
+                  filter === item && styles.filterTextActive,
                 ]}
-                onPress={() => setFilter(item)}
               >
-                <Text
-                  style={[
-                    styles.filterText,
-                    filter === item && styles.filterTextActive,
-                  ]}
-                >
-                  {item}
-                </Text>
-              </Pressable>
-            )
-          )}
+                {item}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            Lista de tareas
-          </Text>
-
-          <Text style={styles.taskCount}>
-            {filteredTasks.length}
-          </Text>
+          <Text style={styles.sectionTitle}>Lista de tareas</Text>
+          <Text style={styles.taskCount}>{filteredTasks.length}</Text>
         </View>
 
         {filteredTasks.map((task) => (
@@ -208,45 +230,43 @@ export default function TasksScreen() {
             key={task.id}
             style={[
               styles.taskCard,
-              task.completed && styles.completedCard,
+              task.completada && styles.completedCard,
             ]}
-            onPress={() => toggleTask(task.id)}
+            onPress={() => toggleTask(task)}
           >
             <View
               style={[
                 styles.checkbox,
-                task.completed && styles.checkboxCompleted,
+                task.completada && styles.checkboxCompleted,
               ]}
             >
-              {task.completed && (
-                <Text style={styles.check}>✓</Text>
-              )}
+              {task.completada && <Text style={styles.check}>✓</Text>}
             </View>
 
             <View style={styles.taskInfo}>
               <Text
                 style={[
                   styles.taskTitle,
-                  task.completed && styles.completedText,
+                  task.completada && styles.completedText,
                 ]}
               >
-                {task.title}
+                {task.titulo}
               </Text>
 
               <Text style={styles.assignedText}>
-                Asignada a {task.assignedTo}
+                {task.responsableNombre
+                  ? `Asignada a ${task.responsableNombre}`
+                  : 'Sin asignar'}
               </Text>
 
               <View style={styles.taskBottom}>
-                <View style={priorityStyle(task.priority)}>
+                <View style={priorityStyle(task.prioridad)}>
                   <Text style={styles.priorityText}>
-                    {task.priority}
+                    {task.prioridad ?? 'Media'}
                   </Text>
                 </View>
 
-                <Text style={styles.dateText}>
-                  {task.date}
-                </Text>
+                <Text style={styles.dateText}>{task.fecha}</Text>
               </View>
             </View>
           </Pressable>
@@ -256,11 +276,15 @@ export default function TasksScreen() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>✓</Text>
             <Text style={styles.emptyTitle}>
-              No hay tareas
+              {isLoading ? 'Cargando...' : 'No hay tareas'}
             </Text>
-            <Text style={styles.emptyText}>
-              No existen tareas en esta categoría.
-            </Text>
+            {!isLoading && (
+              <Text style={styles.emptyText}>
+                {tasks.length === 0
+                  ? 'Aún no has creado tareas. Toca + para agregar la primera.'
+                  : 'No existen tareas en esta categoría.'}
+              </Text>
+            )}
           </View>
         )}
       </ScrollView>
@@ -305,20 +329,14 @@ export default function TasksScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Nueva tarea
-              </Text>
+              <Text style={styles.modalTitle}>Nueva tarea</Text>
 
-              <Pressable
-                onPress={() => setModalVisible(false)}
-              >
+              <Pressable onPress={() => setModalVisible(false)}>
                 <Text style={styles.closeButton}>×</Text>
               </Pressable>
             </View>
 
-            <Text style={styles.label}>
-              Nombre de la tarea
-            </Text>
+            <Text style={styles.label}>Nombre de la tarea</Text>
 
             <TextInput
               style={styles.input}
@@ -328,37 +346,43 @@ export default function TasksScreen() {
               onChangeText={setTitle}
             />
 
-            <Text style={styles.label}>
-              Asignar a
-            </Text>
+            <Text style={styles.label}>Asignar a</Text>
 
             <View style={styles.optionsContainer}>
-              {roommates.map((roommate) => (
-                <Pressable
-                  key={roommate}
-                  style={[
-                    styles.optionButton,
-                    assignedTo === roommate &&
-                      styles.optionButtonActive,
-                  ]}
-                  onPress={() => setAssignedTo(roommate)}
-                >
-                  <Text
+              {roommates.length === 0 ? (
+                <Text style={styles.assignedText}>
+                  Aún no tienes roomies. Agrégalos en la sección Roomies.
+                </Text>
+              ) : (
+                roommates.map((roommate) => (
+                  <Pressable
+                    key={roommate.id}
                     style={[
-                      styles.optionText,
-                      assignedTo === roommate &&
-                        styles.optionTextActive,
+                      styles.optionButton,
+                      assignedId === roommate.id &&
+                        styles.optionButtonActive,
                     ]}
+                    onPress={() =>
+                      setAssignedId(
+                        assignedId === roommate.id ? '' : roommate.id
+                      )
+                    }
                   >
-                    {roommate}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      style={[
+                        styles.optionText,
+                        assignedId === roommate.id &&
+                          styles.optionTextActive,
+                      ]}
+                    >
+                      {roommate.nombre}
+                    </Text>
+                  </Pressable>
+                ))
+              )}
             </View>
 
-            <Text style={styles.label}>
-              Prioridad
-            </Text>
+            <Text style={styles.label}>Prioridad</Text>
 
             <View style={styles.optionsContainer}>
               {['Alta', 'Media', 'Baja'].map((item) => (
@@ -366,16 +390,14 @@ export default function TasksScreen() {
                   key={item}
                   style={[
                     styles.optionButton,
-                    priority === item &&
-                      styles.optionButtonActive,
+                    priority === item && styles.optionButtonActive,
                   ]}
                   onPress={() => setPriority(item)}
                 >
                   <Text
                     style={[
                       styles.optionText,
-                      priority === item &&
-                        styles.optionTextActive,
+                      priority === item && styles.optionTextActive,
                     ]}
                   >
                     {item}
@@ -384,9 +406,7 @@ export default function TasksScreen() {
               ))}
             </View>
 
-            <Text style={styles.label}>
-              Fecha
-            </Text>
+            <Text style={styles.label}>Fecha</Text>
 
             <TextInput
               style={styles.input}
@@ -399,9 +419,10 @@ export default function TasksScreen() {
             <Pressable
               style={styles.saveButton}
               onPress={addTask}
+              disabled={saving}
             >
               <Text style={styles.saveButtonText}>
-                Crear tarea
+                {saving ? 'Guardando...' : 'Crear tarea'}
               </Text>
             </Pressable>
           </View>

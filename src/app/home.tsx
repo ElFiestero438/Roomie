@@ -1,44 +1,158 @@
-
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
+
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+
 import {
-  clearSession,
-  getSession,
-} from '../constants/storage';
+  getCurrentUser,
+  logoutUser,
+  subscribeToAuthChanges,
+} from '../firebase/auth';
+
+import {
+  Compra,
+  Deuda,
+  Gasto,
+  getCompras,
+  getDeudas,
+  getGastos,
+  getRoomies,
+  getTareas,
+  getUserProfile,
+  getViviendas,
+  Roomie,
+  Tarea,
+  Vivienda,
+} from '../firebase/firestore';
 
 export default function HomeScreen() {
+  const [loading, setLoading] = useState(true);
+
+  const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
 
-  React.useEffect(() => {
-    loadUser();
-  }, []);
+  const [viviendas, setViviendas] = useState<Vivienda[]>([]);
+  const [roomies, setRoomies] = useState<Roomie[]>([]);
+  const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [deudas, setDeudas] = useState<Deuda[]>([]);
+  const [compras, setCompras] = useState<Compra[]>([]);
 
-  const loadUser = async () => {
-    try {
-      const session = await getSession();
-
-      if (!session?.isLoggedIn) {
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
+      if (!user) {
         router.replace('/');
         return;
       }
 
-      setUserEmail(session.email);
+      await loadUserData(user.uid);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const loadUserData = async (uid: string) => {
+    try {
+      setLoading(true);
+
+      const user = getCurrentUser();
+
+      if (!user) {
+        router.replace('/');
+        return;
+      }
+
+      setUserEmail(user.email ?? '');
+
+      const profile = await getUserProfile(uid);
+
+      if (profile) {
+        setUserName(profile.name);
+      } else {
+        setUserName(user.displayName ?? '');
+      }
+
+      const [
+        viviendasData,
+        roomiesData,
+        tareasData,
+        gastosData,
+        deudasData,
+        comprasData,
+      ] = await Promise.all([
+        getViviendas(uid),
+        getRoomies(uid),
+        getTareas(uid),
+        getGastos(uid),
+        getDeudas(uid),
+        getCompras(uid),
+      ]);
+
+      setViviendas(viviendasData);
+      setRoomies(roomiesData);
+      setTareas(tareasData);
+      setGastos(gastosData);
+      setDeudas(deudasData);
+      setCompras(comprasData);
     } catch (error) {
-      console.log('Error al cargar usuario:', error);
+      console.log(
+        'Error al cargar los datos de Roomie:',
+        error
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    await clearSession();
-    router.replace('/');
+    try {
+      await logoutUser();
+      router.replace('/');
+    } catch (error) {
+      console.log('Error al cerrar sesión:', error);
+    }
   };
+
+  const tareasPendientes = tareas.filter(
+    (tarea) => !tarea.completada
+  );
+
+  const deudasPendientes = deudas.filter(
+    (deuda) => !deuda.pagada
+  );
+
+  const comprasPendientes = compras.filter(
+    (compra) => !compra.completada
+  );
+
+  const totalDeudas = deudasPendientes.reduce(
+    (total, deuda) => total + Number(deuda.monto || 0),
+    0
+  );
+
+  const viviendaPrincipal = viviendas[0];
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator
+          size="large"
+          color="#E21B2D"
+        />
+
+        <Text style={styles.loadingText}>
+          Cargando tu información...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -48,9 +162,14 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <View style={styles.headerText}>
-            <Text style={styles.greeting}>¡Hola!</Text>
+            <Text style={styles.greeting}>
+              ¡Hola{userName ? `, ${userName}` : ''}!
+            </Text>
 
-            <Text style={styles.email} numberOfLines={1}>
+            <Text
+              style={styles.email}
+              numberOfLines={1}
+            >
               {userEmail}
             </Text>
 
@@ -63,43 +182,81 @@ export default function HomeScreen() {
             style={styles.logoutButton}
             onPress={handleLogout}
           >
-            <Text style={styles.logoutText}>Salir</Text>
+            <Text style={styles.logoutText}>
+              Salir
+            </Text>
           </Pressable>
         </View>
 
         <View style={styles.homeCard}>
-          <Text style={styles.homeLabel}>MI VIVIENDA</Text>
-
-          <Text style={styles.homeTitle}>Mi vivienda</Text>
-
-          <Text style={styles.homeDescription}>
-            Todavía no tienes una vivienda configurada.
+          <Text style={styles.homeLabel}>
+            MI VIVIENDA
           </Text>
+
+          <Text style={styles.homeTitle}>
+            {viviendaPrincipal?.nombre ||
+              'Mi vivienda'}
+          </Text>
+
+          {viviendaPrincipal ? (
+            <>
+              <Text style={styles.homeDescription}>
+                {viviendaPrincipal.descripcion ||
+                  viviendaPrincipal.direccion ||
+                  'Tu vivienda está configurada.'}
+              </Text>
+
+              <Text style={styles.membersText}>
+                {roomies.length}{' '}
+                {roomies.length === 1
+                  ? 'integrante'
+                  : 'integrantes'}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.homeDescription}>
+              Todavía no tienes una vivienda configurada.
+            </Text>
+          )}
 
           <Pressable
             style={styles.primaryButton}
-            onPress={() => router.push('/roommates')}
+            onPress={() =>
+              router.push('/roommates')
+            }
           >
             <Text style={styles.primaryButtonText}>
-              Configurar vivienda
+              {viviendaPrincipal
+                ? 'Administrar vivienda'
+                : 'Configurar vivienda'}
             </Text>
           </Pressable>
         </View>
 
         <View style={styles.balanceCard}>
-          <Text style={styles.sectionTitle}>Tu balance</Text>
+          <Text style={styles.sectionTitle}>
+            Tu balance
+          </Text>
 
           <View style={styles.balanceRow}>
             <View>
-              <Text style={styles.balanceLabel}>Debes</Text>
+              <Text style={styles.balanceLabel}>
+                Debes
+              </Text>
 
-              <Text style={styles.debtAmount}>$0</Text>
+              <Text style={styles.debtAmount}>
+                ${totalDeudas.toLocaleString('es-CO')}
+              </Text>
             </View>
 
             <View style={styles.rightBalance}>
-              <Text style={styles.balanceLabel}>Te deben</Text>
+              <Text style={styles.balanceLabel}>
+                Te deben
+              </Text>
 
-              <Text style={styles.receivableAmount}>$0</Text>
+              <Text style={styles.receivableAmount}>
+                $0
+              </Text>
             </View>
           </View>
         </View>
@@ -109,9 +266,18 @@ export default function HomeScreen() {
             Tareas pendientes
           </Text>
 
-          <Text style={styles.emptyText}>
-            Todavía no tienes tareas registradas.
-          </Text>
+          {tareasPendientes.length > 0 ? (
+            <Text style={styles.dataText}>
+              Tienes {tareasPendientes.length}{' '}
+              {tareasPendientes.length === 1
+                ? 'tarea pendiente'
+                : 'tareas pendientes'}.
+            </Text>
+          ) : (
+            <Text style={styles.emptyText}>
+              Todavía no tienes tareas pendientes.
+            </Text>
+          )}
 
           <Pressable
             style={styles.outlineButton}
@@ -128,9 +294,18 @@ export default function HomeScreen() {
             Gastos
           </Text>
 
-          <Text style={styles.emptyText}>
-            Todavía no tienes gastos registrados.
-          </Text>
+          {gastos.length > 0 ? (
+            <Text style={styles.dataText}>
+              Tienes {gastos.length}{' '}
+              {gastos.length === 1
+                ? 'gasto registrado'
+                : 'gastos registrados'}.
+            </Text>
+          ) : (
+            <Text style={styles.emptyText}>
+              Todavía no tienes gastos registrados.
+            </Text>
+          )}
 
           <Pressable
             style={styles.outlineButton}
@@ -147,9 +322,18 @@ export default function HomeScreen() {
             Actividad reciente
           </Text>
 
-          <Text style={styles.emptyText}>
-            Todavía no hay actividad registrada.
-          </Text>
+          {comprasPendientes.length > 0 ? (
+            <Text style={styles.dataText}>
+              Tienes {comprasPendientes.length}{' '}
+              {comprasPendientes.length === 1
+                ? 'compra pendiente'
+                : 'compras pendientes'}.
+            </Text>
+          ) : (
+            <Text style={styles.emptyText}>
+              Todavía no hay actividad registrada.
+            </Text>
+          )}
         </View>
 
         <View style={styles.quickActionsCard}>
@@ -189,7 +373,9 @@ export default function HomeScreen() {
 
             <Pressable
               style={styles.quickAction}
-              onPress={() => router.push('/roommates')}
+              onPress={() =>
+                router.push('/roommates')
+              }
             >
               <Text style={styles.quickActionText}>
                 Integrantes
@@ -204,28 +390,36 @@ export default function HomeScreen() {
           style={styles.navItem}
           onPress={() => router.replace('/home')}
         >
-          <Text style={styles.navItemActive}>Inicio</Text>
+          <Text style={styles.navItemActive}>
+            Inicio
+          </Text>
         </Pressable>
 
         <Pressable
           style={styles.navItem}
           onPress={() => router.push('/expenses')}
         >
-          <Text style={styles.navItemText}>Gastos</Text>
+          <Text style={styles.navItemText}>
+            Gastos
+          </Text>
         </Pressable>
 
         <Pressable
           style={styles.navItem}
           onPress={() => router.push('/tasks')}
         >
-          <Text style={styles.navItemText}>Tareas</Text>
+          <Text style={styles.navItemText}>
+            Tareas
+          </Text>
         </Pressable>
 
         <Pressable
           style={styles.navItem}
           onPress={() => router.push('/profile')}
         >
-          <Text style={styles.navItemText}>Perfil</Text>
+          <Text style={styles.navItemText}>
+            Perfil
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -241,6 +435,19 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     paddingBottom: 30,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#777777',
   },
 
   header: {
@@ -314,6 +521,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+  membersText: {
+    fontSize: 13,
+    color: '#BDBDBD',
+    marginTop: 8,
+  },
+
   primaryButton: {
     backgroundColor: '#E21B2D',
     borderRadius: 10,
@@ -380,6 +593,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: '#777777',
+    marginTop: 12,
+  },
+
+  dataText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#333333',
     marginTop: 12,
   },
 

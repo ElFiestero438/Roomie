@@ -12,6 +12,9 @@ import {
   View,
 } from 'react-native';
 
+import { getFirebaseErrorMessage, registerUser } from '../firebase/auth';
+import { createUserProfile } from '../firebase/firestore';
+
 export default function RegisterScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,7 +27,7 @@ export default function RegisterScreen() {
 
   const [loading, setLoading] = useState(false);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     const cleanName = name.trim();
     const cleanEmail = email.trim();
     const cleanPassword = password.trim();
@@ -67,24 +70,32 @@ export default function RegisterScreen() {
       return;
     }
 
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    setTimeout(() => {
-      setLoading(false);
-
-      Alert.alert(
-        'Cuenta creada',
-        'Tu cuenta se ha creado correctamente.',
-        [
-          {
-            text: 'Continuar',
-            onPress: () => {
-              router.replace('/');
-            },
-          },
-        ]
+      const user = await registerUser(
+        cleanName,
+        cleanEmail,
+        cleanPassword
       );
-    }, 500);
+
+      await createUserProfile(
+        user.uid,
+        cleanName,
+        user.email ?? cleanEmail,
+        null,
+        'email'
+      );
+
+      router.replace('/home');
+    } catch (error) {
+      Alert.alert(
+        'No se pudo crear la cuenta',
+        getFirebaseErrorMessage(error)
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

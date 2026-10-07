@@ -11,6 +11,8 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.roomie.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -24,16 +26,17 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
-        }
-      ]
-    ],
+  "expo-router",
+  "@react-native-google-signin/google-signin",
+  [
+    "expo-splash-screen",
+    {
+      "backgroundColor": "#208AEF",
+      "image": "./assets/images/splash-icon.png",
+      "imageWidth": 76
+    }
+  ]
+],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

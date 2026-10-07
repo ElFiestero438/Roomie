@@ -1,6 +1,7 @@
-
 import { router } from 'expo-router';
+
 import { useEffect, useState } from 'react';
+
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,36 +13,34 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
 import {
-  getSession,
-  saveSession,
-} from '../constants/storage';
+  getCurrentUser,
+  getFirebaseErrorMessage,
+  loginUser,
+  loginWithGoogle,
+  subscribeToAuthChanges,
+} from '../firebase/auth';
 
 export default function Index() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   useEffect(() => {
-    checkSession();
-  }, []);
-
-  const checkSession = async () => {
-    try {
-      const session = await getSession();
-
-      if (session?.isLoggedIn) {
+    const unsubscribe = subscribeToAuthChanges((user) => {
+      if (user) {
         router.replace('/home');
       }
-    } catch (error) {
-      console.log('Error al comprobar sesión:', error);
-    } finally {
+
       setLoading(false);
-    }
-  };
+    });
+
+    return unsubscribe;
+  }, []);
 
   const handleLogin = async () => {
     setErrorMessage('');
@@ -63,9 +62,9 @@ export default function Index() {
       return;
     }
 
-    if (password.length < 4) {
+    if (password.length < 6) {
       setErrorMessage(
-        'La contraseña debe tener al menos 4 caracteres.'
+        'La contraseña debe tener al menos 6 caracteres.'
       );
       return;
     }
@@ -73,20 +72,48 @@ export default function Index() {
     try {
       setIsSubmitting(true);
 
-      await saveSession(cleanEmail);
+      await loginUser(cleanEmail, password);
 
       router.replace('/home');
     } catch (error) {
-      setErrorMessage(
-        'No se pudo iniciar sesión. Inténtalo nuevamente.'
-      );
+      setErrorMessage(getFirebaseErrorMessage(error));
+
       console.log('Error al iniciar sesión:', error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setErrorMessage('');
+
+    try {
+      setIsGoogleSubmitting(true);
+
+      await loginWithGoogle();
+
+      router.replace('/home');
+    } catch (error) {
+      setErrorMessage(getFirebaseErrorMessage(error));
+
+      console.log(
+        'Error al iniciar sesión con Google:',
+        error
+      );
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
   if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E21B2D" />
+      </View>
+    );
+  }
+
+  if (getCurrentUser()) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E21B2D" />
@@ -105,6 +132,7 @@ export default function Index() {
       >
         <View style={styles.logoContainer}>
           <Text style={styles.logo}>ROOMIE</Text>
+
           <Text style={styles.subtitle}>
             Organiza tu hogar de forma sencilla
           </Text>
@@ -113,7 +141,9 @@ export default function Index() {
         <View style={styles.formContainer}>
           <Text style={styles.title}>Iniciar sesión</Text>
 
-          <Text style={styles.label}>Correo electrónico</Text>
+          <Text style={styles.label}>
+            Correo electrónico
+          </Text>
 
           <TextInput
             style={[
@@ -126,6 +156,7 @@ export default function Index() {
             placeholderTextColor="#999999"
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
             value={email}
             onChangeText={(text) => {
               setEmail(text);
@@ -166,7 +197,9 @@ export default function Index() {
               isSubmitting && styles.buttonDisabled,
             ]}
             onPress={handleLogin}
-            disabled={isSubmitting}
+            disabled={
+              isSubmitting || isGoogleSubmitting
+            }
           >
             {isSubmitting ? (
               <ActivityIndicator color="#FFFFFF" />
@@ -178,8 +211,30 @@ export default function Index() {
           </Pressable>
 
           <Pressable
+            style={[
+              styles.googleButton,
+              isGoogleSubmitting && styles.buttonDisabled,
+            ]}
+            onPress={handleGoogleLogin}
+            disabled={
+              isSubmitting || isGoogleSubmitting
+            }
+          >
+            {isGoogleSubmitting ? (
+              <ActivityIndicator color="#1E1E1E" />
+            ) : (
+              <Text style={styles.googleButtonText}>
+                Continuar con Google
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
             style={styles.secondaryButton}
             onPress={() => router.push('/register')}
+            disabled={
+              isSubmitting || isGoogleSubmitting
+            }
           >
             <Text style={styles.secondaryButtonText}>
               Crear cuenta
@@ -194,10 +249,6 @@ export default function Index() {
               ¿Olvidaste tu contraseña?
             </Text>
           </Pressable>
-
-          <Text style={styles.localModeText}>
-            Modo local de prueba
-          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -299,6 +350,17 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
 
+  googleButton: {
+    height: 52,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDDDDD',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+
   buttonDisabled: {
     opacity: 0.7,
   },
@@ -307,6 +369,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  googleButtonText: {
+    color: '#1E1E1E',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   secondaryButton: {
@@ -334,12 +402,5 @@ const styles = StyleSheet.create({
     color: '#E21B2D',
     fontSize: 14,
     fontWeight: '500',
-  },
-
-  localModeText: {
-    textAlign: 'center',
-    color: '#999999',
-    fontSize: 12,
-    marginTop: 28,
   },
 });
