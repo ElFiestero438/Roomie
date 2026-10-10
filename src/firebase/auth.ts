@@ -12,9 +12,17 @@ import {
   User,
 } from 'firebase/auth';
 
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-
 import { auth } from './config';
+
+// Google Sign-In es un módulo nativo: no existe en Expo Go.
+// Se carga solo cuando se usa, para que la app no se rompa al arrancar.
+function getGoogleSignin() {
+  try {
+    return require('@react-native-google-signin/google-signin').GoogleSignin;
+  } catch {
+    return null;
+  }
+}
 
 export async function registerUser(
   name: string,
@@ -77,6 +85,14 @@ export async function loginUser(
 }
 
 export async function loginWithGoogle(): Promise<User> {
+  const GoogleSignin = getGoogleSignin();
+
+  if (!GoogleSignin) {
+    throw new Error(
+      'El inicio de sesión con Google no está disponible en Expo Go. Usa tu correo y contraseña.'
+    );
+  }
+
   await GoogleSignin.hasPlayServices({
     showPlayServicesUpdateDialog: true,
   });
@@ -115,7 +131,8 @@ export async function resetPassword(
 
 export async function logoutUser(): Promise<void> {
   try {
-    await GoogleSignin.signOut();
+    const GoogleSignin = getGoogleSignin();
+    await GoogleSignin?.signOut();
   } catch {
   }
 
