@@ -1,58 +1,37 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-type ShoppingItem = {
-  id: number;
-  name: string;
-  quantity: string;
-  category: string;
-  purchased: boolean;
+import { Alert } from '../components/app-alert';
+import { ProfileIcon } from '../components/bottom-nav';
+import type { Compra } from '../firebase/firestore';
+import { deleteCompra, getCompras, saveCompra } from '../firebase/firestore';
+import { useAuthUser } from '../hooks/useAuthUser';
+
+// Un producto de la lista: lo que guarda Firestore + su categoría.
+type ShoppingItem = Compra & {
+  categoria?: string;
 };
 
 const categories = ['Todos', 'Comida', 'Limpieza', 'Hogar', 'Otros'];
 
 export default function ShoppingScreen() {
-  const [items, setItems] = useState<ShoppingItem[]>([
-    {
-      id: 1,
-      name: 'Leche',
-      quantity: '2',
-      category: 'Comida',
-      purchased: false,
-    },
-    {
-      id: 2,
-      name: 'Arroz',
-      quantity: '1',
-      category: 'Comida',
-      purchased: false,
-    },
-    {
-      id: 3,
-      name: 'Jabón para platos',
-      quantity: '2',
-      category: 'Limpieza',
-      purchased: true,
-    },
-    {
-      id: 4,
-      name: 'Papel higiénico',
-      quantity: '1',
-      category: 'Hogar',
-      purchased: false,
-    },
-  ]);
+  const { user, loading: authLoading } = useAuthUser();
+  const uid = user?.uid;
+
+  const [items, setItems] = useState<ShoppingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [modalVisible, setModalVisible] = useState(false);
@@ -60,72 +39,169 @@ export default function ShoppingScreen() {
   const [quantity, setQuantity] = useState('');
   const [category, setCategory] = useState('Comida');
 
-  const pending = items.filter(item => !item.purchased).length;
-  const purchased = items.filter(item => item.purchased).length;
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/');
+    }
+  }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
+
+      let active = true;
+      setLoading(true);
+
+      getCompras(uid)
+        .then((loaded) => {
+          if (!active) return;
+
+          setItems(
+            [...(loaded as ShoppingItem[])].sort(
+              (a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0)
+            )
+          );
+        })
+        .catch((error: any) => {
+          if (!active) return;
+          Alert.alert(
+            'No se pudo cargar la lista',
+            error?.message ?? 'Intenta de nuevo.'
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [uid])
+  );
+
+  const pending = items.filter(item => !item.completada).length;
+  const purchased = items.filter(item => item.completada).length;
 
   const filteredItems = useMemo(() => {
     if (selectedCategory === 'Todos') {
       return items;
     }
 
-    return items.filter(item => item.category === selectedCategory);
+    return items.filter(item => (item.categoria ?? 'Otros') === selectedCategory);
   }, [items, selectedCategory]);
 
-  const togglePurchased = (id: number) => {
-    setItems(current =>
-      current.map(item =>
-        item.id === id
-          ? { ...item, purchased: !item.purchased }
-          : item
-      )
-    );
+  const openModal = () => {
+    setItemName('');
+    setQuantity('');
+    setCategory('Comida');
+    setModalVisible(true);
   };
 
-  const deleteItem = (id: number) => {
+  const closeModal = () => {
+    if (saving) return;
+    setModalVisible(false);
+  };
+
+  const togglePurchased = async (item: ShoppingItem) => {
+    if (!uid) return;
+
+    const updated: ShoppingItem = { ...item, completada: !item.completada };
+
+    setItems(current =>
+      current.map(entry => (entry.id === item.id ? updated : entry))
+    );
+
+    try {
+      await saveCompra(uid, updated);
+    } catch (error: any) {
+      setItems(current =>
+        current.map(entry => (entry.id === item.id ? item : entry))
+      );
+      Alert.alert(
+        'No se pudo actualizar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
+  };
+
+  const deleteItem = (item: ShoppingItem) => {
+    if (!uid) return;
+
     Alert.alert(
       'Eliminar producto',
-      '¿Quieres eliminar este producto de la lista?',
+      `¿Quieres eliminar "${item.nombre}" de la lista?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => {
-            setItems(current => current.filter(item => item.id !== id));
+          onPress: async () => {
+            const previous = items;
+
+            // Desaparece de la lista al instante y luego se borra de Firebase.
+            setItems(current => current.filter(entry => entry.id !== item.id));
+
+            try {
+              await deleteCompra(uid, item.id);
+            } catch (error: any) {
+              setItems(previous);
+              Alert.alert(
+                'No se pudo eliminar',
+                error?.message ?? 'Intenta de nuevo.'
+              );
+            }
           },
         },
       ]
     );
   };
 
-  const addItem = () => {
+  const addItem = async () => {
+    if (!uid) return;
+
     if (!itemName.trim()) {
       Alert.alert('Falta información', 'Escribe el nombre del producto.');
       return;
     }
 
-    if (!quantity.trim()) {
-      Alert.alert('Falta información', 'Escribe la cantidad.');
+    const numericQuantity = Number(quantity.replace(/[^0-9]/g, ''));
+
+    if (!numericQuantity || numericQuantity <= 0) {
+      Alert.alert('Falta información', 'Escribe una cantidad válida.');
       return;
     }
 
     const newItem: ShoppingItem = {
-      id: Date.now(),
-      name: itemName.trim(),
-      quantity: quantity.trim(),
-      category,
-      purchased: false,
+      id: Date.now().toString(),
+      nombre: itemName.trim(),
+      cantidad: numericQuantity,
+      categoria: category,
+      completada: false,
+      createdAt: Date.now(),
     };
 
-    setItems(current => [newItem, ...current]);
+    try {
+      setSaving(true);
+      await saveCompra(uid, newItem);
 
-    setItemName('');
-    setQuantity('');
-    setCategory('Comida');
-    setModalVisible(false);
+      setItems(current => [newItem, ...current]);
+      setSaving(false);
+      setModalVisible(false);
+    } catch (error: any) {
+      setSaving(false);
+      Alert.alert(
+        'No se pudo guardar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
   };
 
   const clearPurchased = () => {
+    if (!uid) return;
+
     if (purchased === 0) {
       Alert.alert('Lista limpia', 'No tienes productos comprados.');
       return;
@@ -139,13 +215,36 @@ export default function ShoppingScreen() {
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => {
-            setItems(current => current.filter(item => !item.purchased));
+          onPress: async () => {
+            const previous = items;
+            const toDelete = items.filter(item => item.completada);
+
+            // Desaparecen de la lista al instante y luego se borran de Firebase.
+            setItems(current => current.filter(item => !item.completada));
+
+            try {
+              await Promise.all(toDelete.map(item => deleteCompra(uid, item.id)));
+            } catch (error: any) {
+              setItems(previous);
+              Alert.alert(
+                'No se pudieron eliminar',
+                error?.message ?? 'Intenta de nuevo.'
+              );
+            }
           },
         },
       ]
     );
   };
+
+  if (authLoading || loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E21B2D" />
+        <Text style={styles.loadingText}>Cargando tu lista...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -166,7 +265,7 @@ export default function ShoppingScreen() {
 
         <Pressable
           style={styles.headerAddButton}
-          onPress={() => setModalVisible(true)}
+          onPress={openModal}
         >
           <Text style={styles.headerAddText}>+</Text>
         </Pressable>
@@ -236,7 +335,7 @@ export default function ShoppingScreen() {
 
             <Pressable
               style={styles.emptyButton}
-              onPress={() => setModalVisible(true)}
+              onPress={openModal}
             >
               <Text style={styles.emptyButtonText}>
                 Agregar producto
@@ -250,42 +349,42 @@ export default function ShoppingScreen() {
                 key={item.id}
                 style={[
                   styles.itemCard,
-                  item.purchased && styles.itemPurchased,
+                  item.completada && styles.itemPurchased,
                 ]}
               >
                 <Pressable
                   style={[
                     styles.checkbox,
-                    item.purchased && styles.checkboxActive,
+                    item.completada && styles.checkboxActive,
                   ]}
-                  onPress={() => togglePurchased(item.id)}
+                  onPress={() => togglePurchased(item)}
                 >
-                  {item.purchased && (
+                  {item.completada && (
                     <Text style={styles.check}>✓</Text>
                   )}
                 </Pressable>
 
                 <Pressable
                   style={styles.itemInfo}
-                  onPress={() => togglePurchased(item.id)}
+                  onPress={() => togglePurchased(item)}
                 >
                   <Text
                     style={[
                       styles.itemName,
-                      item.purchased && styles.itemNamePurchased,
+                      item.completada && styles.itemNamePurchased,
                     ]}
                   >
-                    {item.name}
+                    {item.nombre}
                   </Text>
 
                   <Text style={styles.itemDetails}>
-                    Cantidad: {item.quantity} · {item.category}
+                    Cantidad: {item.cantidad ?? 1} · {item.categoria ?? 'Otros'}
                   </Text>
                 </Pressable>
 
                 <Pressable
                   style={styles.deleteButton}
-                  onPress={() => deleteItem(item.id)}
+                  onPress={() => deleteItem(item)}
                 >
                   <Text style={styles.deleteText}>×</Text>
                 </Pressable>
@@ -295,17 +394,17 @@ export default function ShoppingScreen() {
         )}
 
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Lista compartida</Text>
+          <Text style={styles.infoTitle}>Lista guardada</Text>
           <Text style={styles.infoText}>
-            Los productos agregados podrán ser consultados por todos
-            los integrantes de la casa.
+            Los productos se guardan en tu cuenta y siguen ahí aunque
+            cierres sesión.
           </Text>
         </View>
       </ScrollView>
 
       <Pressable
         style={styles.floatingButton}
-        onPress={() => setModalVisible(true)}
+        onPress={openModal}
       >
         <Text style={styles.floatingText}>+</Text>
       </Pressable>
@@ -339,7 +438,7 @@ export default function ShoppingScreen() {
           style={styles.navItem}
           onPress={() => router.push('/profile')}
         >
-          <Text style={styles.navIcon}>●</Text>
+          <ProfileIcon />
           <Text style={styles.navText}>Perfil</Text>
         </Pressable>
       </View>
@@ -348,7 +447,7 @@ export default function ShoppingScreen() {
         visible={modalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={closeModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
@@ -357,7 +456,7 @@ export default function ShoppingScreen() {
                 Agregar producto
               </Text>
 
-              <Pressable onPress={() => setModalVisible(false)}>
+              <Pressable onPress={closeModal}>
                 <Text style={styles.closeText}>×</Text>
               </Pressable>
             </View>
@@ -380,6 +479,7 @@ export default function ShoppingScreen() {
               placeholderTextColor="#999"
               value={quantity}
               onChangeText={setQuantity}
+              keyboardType="numeric"
             />
 
             <Text style={styles.inputLabel}>Categoría</Text>
@@ -408,12 +508,17 @@ export default function ShoppingScreen() {
             </View>
 
             <Pressable
-              style={styles.addButton}
+              style={[styles.addButton, saving && styles.disabled]}
               onPress={addItem}
+              disabled={saving}
             >
-              <Text style={styles.addButtonText}>
-                Agregar a la lista
-              </Text>
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.addButtonText}>
+                  Agregar a la lista
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -423,6 +528,23 @@ export default function ShoppingScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#777777',
+  },
+
+  disabled: {
+    opacity: 0.7,
+  },
+
   container: {
     flex: 1,
     backgroundColor: '#F7F7F7',

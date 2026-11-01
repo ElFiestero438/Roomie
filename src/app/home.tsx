@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -18,10 +18,8 @@ import {
 
 import {
   Compra,
-  Deuda,
   Gasto,
   getCompras,
-  getDeudas,
   getGastos,
   getRoomies,
   getTareas,
@@ -32,8 +30,12 @@ import {
   Vivienda,
 } from '../firebase/firestore';
 
+import { BottomNav } from '../components/bottom-nav';
+import { calculateBalance } from '../utils/balance';
+
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
+  const [uid, setUid] = useState<string | null>(null);
 
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -42,26 +44,35 @@ export default function HomeScreen() {
   const [roomies, setRoomies] = useState<Roomie[]>([]);
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
-  const [deudas, setDeudas] = useState<Deuda[]>([]);
   const [compras, setCompras] = useState<Compra[]>([]);
 
+  // Detecta quién tiene la sesión abierta.
   useEffect(() => {
-    const unsubscribe = subscribeToAuthChanges(async (user) => {
+    const unsubscribe = subscribeToAuthChanges((user) => {
       if (!user) {
         router.replace('/');
         return;
       }
 
-      await loadUserData(user.uid);
+      setUid(user.uid);
     });
 
     return unsubscribe;
   }, []);
 
+  // Recarga los datos cada vez que vuelves a Inicio (por ejemplo, desde Gastos),
+  // para que el balance siempre coincida con la pestaña Gastos.
+  useFocusEffect(
+    useCallback(() => {
+      if (uid) {
+        loadUserData(uid);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uid])
+  );
+
   const loadUserData = async (uid: string) => {
     try {
-      setLoading(true);
-
       const user = getCurrentUser();
 
       if (!user) {
@@ -84,14 +95,12 @@ export default function HomeScreen() {
         roomiesData,
         tareasData,
         gastosData,
-        deudasData,
         comprasData,
       ] = await Promise.all([
         getViviendas(uid),
         getRoomies(uid),
         getTareas(uid),
         getGastos(uid),
-        getDeudas(uid),
         getCompras(uid),
       ]);
 
@@ -99,7 +108,6 @@ export default function HomeScreen() {
       setRoomies(roomiesData);
       setTareas(tareasData);
       setGastos(gastosData);
-      setDeudas(deudasData);
       setCompras(comprasData);
     } catch (error) {
       console.log(
@@ -124,18 +132,12 @@ export default function HomeScreen() {
     (tarea) => !tarea.completada
   );
 
-  const deudasPendientes = deudas.filter(
-    (deuda) => !deuda.pagada
-  );
-
   const comprasPendientes = compras.filter(
     (compra) => !compra.completada
   );
 
-  const totalDeudas = deudasPendientes.reduce(
-    (total, deuda) => total + Number(deuda.monto || 0),
-    0
-  );
+  // Mismo cálculo que la pestaña Gastos.
+  const balance = calculateBalance(gastos, roomies, uid ?? '');
 
   const viviendaPrincipal = viviendas[0];
 
@@ -233,9 +235,17 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.balanceCard}>
+        <Pressable
+          style={styles.balanceCard}
+          onPress={() => router.push('/expenses')}
+        >
           <Text style={styles.sectionTitle}>
             Tu balance
+          </Text>
+
+          <Text style={styles.balanceTotal}>
+            Pendiente por saldar: ${Math.round(balance.pending).toLocaleString('es-CO')}
+            {' · '}Total gastado: ${Math.round(balance.total).toLocaleString('es-CO')}
           </Text>
 
           <View style={styles.balanceRow}>
@@ -245,7 +255,7 @@ export default function HomeScreen() {
               </Text>
 
               <Text style={styles.debtAmount}>
-                ${totalDeudas.toLocaleString('es-CO')}
+                -${Math.round(balance.iOwe).toLocaleString('es-CO')}
               </Text>
             </View>
 
@@ -255,11 +265,11 @@ export default function HomeScreen() {
               </Text>
 
               <Text style={styles.receivableAmount}>
-                $0
+                +${Math.round(balance.theyOweMe).toLocaleString('es-CO')}
               </Text>
             </View>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>
@@ -385,43 +395,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.bottomNavigation}>
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.replace('/home')}
-        >
-          <Text style={styles.navItemActive}>
-            Inicio
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/expenses')}
-        >
-          <Text style={styles.navItemText}>
-            Gastos
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/tasks')}
-        >
-          <Text style={styles.navItemText}>
-            Tareas
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/profile')}
-        >
-          <Text style={styles.navItemText}>
-            Perfil
-          </Text>
-        </Pressable>
-      </View>
+      <BottomNav active="home" />
     </View>
   );
 }
@@ -434,7 +408,7 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     padding: 20,
-    paddingBottom: 30,
+    paddingBottom: 100,
   },
 
   loadingContainer: {
@@ -554,6 +528,12 @@ const styles = StyleSheet.create({
     color: '#1E1E1E',
   },
 
+  balanceTotal: {
+    fontSize: 13,
+    color: '#777777',
+    marginTop: 6,
+  },
+
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -643,31 +623,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#E21B2D',
-  },
-
-  bottomNavigation: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
-    paddingVertical: 15,
-  },
-
-  navItem: {
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-
-  navItemActive: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#E21B2D',
-  },
-
-  navItemText: {
-    fontSize: 13,
-    color: '#777777',
   },
 });

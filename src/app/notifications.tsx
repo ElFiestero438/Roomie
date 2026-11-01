@@ -1,65 +1,289 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Alert } from '../components/app-alert';
+import { ProfileIcon } from '../components/bottom-nav';
+import { db } from '../firebase/config';
+import type { Compra, Gasto, Roomie, Tarea } from '../firebase/firestore';
+import {
+  getCompras,
+  getGastos,
+  getRoomies,
+  getTareas,
+  getViviendas,
+} from '../firebase/firestore';
+import { useAuthUser } from '../hooks/useAuthUser';
+
+type NotificationType = 'expense' | 'task' | 'shopping' | 'home';
 
 type Notification = {
-  id: number;
+  id: string;
   title: string;
   message: string;
-  time: string;
-  type: 'expense' | 'task' | 'shopping' | 'home';
+  timestamp: number;
+  type: NotificationType;
   read: boolean;
 };
 
-export default function NotificationsScreen() {
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 1,
+type ExpenseData = Gasto & {
+  participantes?: string[];
+  partes?: Record<string, number>;
+  pagos?: Record<string, boolean>;
+  saldado?: boolean;
+};
+
+const formatCurrency = (value: number) =>
+  `$${Math.round(value).toLocaleString('es-CO')}`;
+
+// Convierte createdAt / updatedAt / fecha a milisegundos.
+const toMillis = (value: any, fallback?: string) => {
+  if (typeof value === 'number') return value;
+  if (value && typeof value.toMillis === 'function') return value.toMillis();
+
+  if (fallback) {
+    const parsed = Date.parse(fallback);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return 0;
+};
+
+const timeAgo = (ms: number) => {
+  if (!ms) return '';
+
+  const minutes = Math.floor((Date.now() - ms) / 60000);
+
+  if (minutes < 1) return 'Hace un momento';
+  if (minutes < 60) return `Hace ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Hace ${hours} h`;
+  if (hours < 48) return 'Ayer';
+
+  return new Date(ms).toLocaleDateString('es-CO', {
+    day: 'numeric',
+    month: 'short',
+  });
+};
+
+// Crea los avisos a partir de los datos reales de la cuenta.
+function buildNotifications(
+  uid: string,
+  homeName: string,
+  gastos: ExpenseData[],
+  tareas: Tarea[],
+  compras: Compra[],
+  roomies: Roomie[]
+): Omit<Notification, 'read'>[] {
+  const list: Omit<Notification, 'read'>[] = [];
+  const memberIds = roomies.length > 0 ? roomies.map((r) => r.id) : [uid];
+
+  const nameOf = (id?: string, fallback?: string) => {
+    if (!id || id === uid) return 'Tú';
+    return roomies.find((r) => r.id === id)?.nombre ?? fallback ?? 'Un roomie';
+  };
+
+  gastos.forEach((gasto) => {
+    const time = toMillis(gasto.createdAt, gasto.fecha);
+    const payerId = gasto.responsableId || uid;
+    const payerName = nameOf(payerId, gasto.responsableNombre);
+    const people =
+      gasto.participantes && gasto.participantes.length > 0
+        ? gasto.participantes
+        : memberIds;
+    const share =
+      gasto.partes && gasto.partes[uid] !== undefined
+        ? Number(gasto.partes[uid]) || 0
+        : Number(gasto.monto || 0) / Math.max(people.length, 1);
+
+    list.push({
+      id: `gasto-${gasto.id}`,
       title: 'Nuevo gasto registrado',
-      message: 'Carlos registró un gasto de $80.000 por internet.',
-      time: 'Hace 10 minutos',
+      message:
+        payerName === 'Tú'
+          ? `Pagaste "${gasto.titulo}" por ${formatCurrency(Number(gasto.monto || 0))}.`
+          : `${payerName} pagó "${gasto.titulo}" por ${formatCurrency(
+              Number(gasto.monto || 0)
+            )}.`,
+      timestamp: time,
       type: 'expense',
-      read: false,
-    },
-    {
-      id: 2,
-      title: 'Tarea pendiente',
-      message: 'Tienes pendiente la tarea "Limpiar la cocina".',
-      time: 'Hace 1 hora',
-      type: 'task',
-      read: false,
-    },
-    {
-      id: 3,
-      title: 'Lista de compras actualizada',
-      message: 'Laura agregó "Papel higiénico" a la lista.',
-      time: 'Hace 2 horas',
-      type: 'shopping',
-      read: true,
-    },
-    {
-      id: 4,
-      title: 'Nuevo integrante',
-      message: 'Andrés se unió a Casa Roomie.',
-      time: 'Ayer',
-      type: 'home',
-      read: true,
-    },
-  ]);
+    });
+
+    const iPaid = gasto.pagos ? !!gasto.pagos[uid] : !!gasto.saldado;
+
+    if (payerId !== uid && people.includes(uid) && !iPaid && share > 0) {
+      list.push({
+        id: `deuda-${gasto.id}`,
+        title: 'Tienes un pago pendiente',
+        message: `Le debes ${formatCurrency(share)} a ${payerName} por "${gasto.titulo}".`,
+        timestamp: time + 1,
+        type: 'expense',
+      });
+    }
+  });
+
+  tareas
+    .filter((tarea) => !tarea.completada)
+    .forEach((tarea) => {
+      const details = [
+        tarea.responsableNombre ? `Asignada a ${tarea.responsableNombre}` : '',
+        tarea.fecha && tarea.fecha !== 'Sin fecha' ? `Para: ${tarea.fecha}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+      list.push({
+        id: `tarea-${tarea.id}`,
+        title: 'Tarea pendiente',
+        message: `Tienes pendiente la tarea "${tarea.titulo}".${
+          details ? ` ${details}.` : ''
+        }`,
+        timestamp: toMillis(tarea.createdAt),
+        type: 'task',
+      });
+    });
+
+  compras
+    .filter((compra) => !compra.completada)
+    .forEach((compra) => {
+      list.push({
+        id: `compra-${compra.id}`,
+        title: 'Producto por comprar',
+        message: `Falta comprar ${compra.cantidad ?? 1} × ${compra.nombre}.`,
+        timestamp: toMillis(compra.createdAt),
+        type: 'shopping',
+      });
+    });
+
+  roomies
+    .filter((roomie) => roomie.id !== uid)
+    .forEach((roomie) => {
+      list.push({
+        id: `roomie-${roomie.id}`,
+        title: 'Nuevo integrante',
+        message: `${roomie.nombre} se unió a ${homeName}.`,
+        timestamp: toMillis(roomie.createdAt),
+        type: 'home',
+      });
+    });
+
+  return list.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+export default function NotificationsScreen() {
+  const { user, loading: authLoading } = useAuthUser();
+  const uid = user?.uid;
+
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [readIds, setReadIds] = useState<string[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/');
+    }
+  }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
+
+      let active = true;
+      setLoading(true);
+
+      Promise.all([
+        getDoc(doc(db, 'users', uid)),
+        getViviendas(uid),
+        getGastos(uid),
+        getTareas(uid),
+        getCompras(uid),
+        getRoomies(uid),
+      ])
+        .then(([profileSnap, viviendas, gastos, tareas, compras, roomies]) => {
+          if (!active) return;
+
+          const profile = profileSnap.data() ?? {};
+          const read: string[] = profile.notificacionesLeidas ?? [];
+          const hidden: string[] = profile.notificacionesOcultas ?? [];
+
+          setReadIds(read);
+          setHiddenIds(hidden);
+          setEnabled(profile.notificationsEnabled ?? true);
+
+          const built = buildNotifications(
+            uid,
+            viviendas[0]?.nombre ?? 'tu vivienda',
+            gastos as ExpenseData[],
+            tareas,
+            compras,
+            roomies
+          );
+
+          setNotifications(
+            built
+              .filter((item) => !hidden.includes(item.id))
+              .map((item) => ({ ...item, read: read.includes(item.id) }))
+          );
+        })
+        .catch((error: any) => {
+          if (!active) return;
+          Alert.alert(
+            'No se pudieron cargar las notificaciones',
+            error?.message ?? 'Intenta de nuevo.'
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [uid])
+  );
+
+  // Guarda en tu cuenta qué avisos leíste u ocultaste.
+  const saveState = async (read: string[], hidden: string[]) => {
+    if (!uid) return;
+
+    try {
+      await setDoc(
+        doc(db, 'users', uid),
+        { notificacionesLeidas: read, notificacionesOcultas: hidden },
+        { merge: true }
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'No se pudo guardar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
+  };
 
   const unreadCount = notifications.filter(
     notification => !notification.read
   ).length;
 
-  const markAsRead = (id: number) => {
+  const markAsRead = (id: string) => {
+    if (readIds.includes(id)) return;
+
+    const read = [...readIds, id];
+    setReadIds(read);
     setNotifications(current =>
       current.map(notification =>
         notification.id === id
@@ -67,6 +291,7 @@ export default function NotificationsScreen() {
           : notification
       )
     );
+    saveState(read, hiddenIds);
   };
 
   const markAllAsRead = () => {
@@ -78,18 +303,26 @@ export default function NotificationsScreen() {
       return;
     }
 
+    const read = Array.from(
+      new Set([...readIds, ...notifications.map(item => item.id)])
+    );
+    setReadIds(read);
     setNotifications(current =>
       current.map(notification => ({
         ...notification,
         read: true,
       }))
     );
+    saveState(read, hiddenIds);
   };
 
-  const deleteNotification = (id: number) => {
+  const deleteNotification = (id: string) => {
+    const hidden = [...hiddenIds, id];
+    setHiddenIds(hidden);
     setNotifications(current =>
       current.filter(notification => notification.id !== id)
     );
+    saveState(readIds, hidden);
   };
 
   const getIcon = (type: Notification['type']) => {
@@ -120,6 +353,15 @@ export default function NotificationsScreen() {
       router.push('/roommates');
     }
   };
+
+  if (authLoading || loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E21B2D" />
+        <Text style={styles.loadingText}>Cargando notificaciones...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -160,6 +402,18 @@ export default function NotificationsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
+        {!enabled && (
+          <Pressable
+            style={styles.disabledBanner}
+            onPress={() => router.push('/profile')}
+          >
+            <Text style={styles.disabledText}>
+              Tienes las notificaciones desactivadas. Puedes activarlas en
+              Perfil.
+            </Text>
+          </Pressable>
+        )}
+
         {notifications.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>✓</Text>
@@ -231,7 +485,7 @@ export default function NotificationsScreen() {
                   </Text>
 
                   <Text style={styles.time}>
-                    {notification.time}
+                    {timeAgo(notification.timestamp)}
                   </Text>
                 </View>
               </Pressable>
@@ -245,8 +499,9 @@ export default function NotificationsScreen() {
           </Text>
 
           <Text style={styles.infoText}>
-            Roomie te avisará cuando haya cambios importantes en
-            los gastos, tareas, compras o integrantes de tu casa.
+            Aquí ves los gastos, pagos pendientes, tareas, compras e
+            integrantes de tu casa. Mantén presionado un aviso para
+            eliminarlo.
           </Text>
         </View>
       </ScrollView>
@@ -280,7 +535,7 @@ export default function NotificationsScreen() {
           style={styles.navItem}
           onPress={() => router.push('/profile')}
         >
-          <Text style={styles.navIcon}>●</Text>
+          <ProfileIcon />
           <Text style={styles.navText}>Perfil</Text>
         </Pressable>
       </View>
@@ -289,6 +544,33 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#777777',
+  },
+
+  disabledBanner: {
+    backgroundColor: '#FCE8EA',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  disabledText: {
+    color: '#C62828',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+
   container: {
     flex: 1,
     backgroundColor: '#F7F7F7',

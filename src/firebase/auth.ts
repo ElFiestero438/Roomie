@@ -1,5 +1,3 @@
-/// Funciones de cuenta: registerUser, loginUser, loginWithGoogle, resetPassword, logoutUser.
-
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
@@ -9,16 +7,29 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
-  User,
+  type User,
 } from 'firebase/auth';
+
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 import { auth } from './config';
 
-// Google Sign-In es un módulo nativo: no existe en Expo Go.
-// Se carga solo cuando se usa, para que la app no se rompa al arrancar.
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function getGoogleSignin() {
+  // En Expo Go no existe el módulo nativo de Google.
+  // Si se intenta cargar, la app muestra la pantalla roja de error.
+  if (
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+  ) {
+    return null;
+  }
+
   try {
-    return require('@react-native-google-signin/google-signin').GoogleSignin;
+    return require('@react-native-google-signin/google-signin')
+      .GoogleSignin;
   } catch {
     return null;
   }
@@ -36,8 +47,8 @@ export async function registerUser(
     throw new Error('Debes ingresar tu nombre.');
   }
 
-  if (!cleanEmail) {
-    throw new Error('Debes ingresar tu correo.');
+  if (!isValidEmail(cleanEmail)) {
+    throw new Error('El correo electrónico no es válido.');
   }
 
   if (!password) {
@@ -45,7 +56,9 @@ export async function registerUser(
   }
 
   if (password.length < 6) {
-    throw new Error('La contraseña debe tener al menos 6 caracteres.');
+    throw new Error(
+      'La contraseña debe tener al menos 6 caracteres.'
+    );
   }
 
   const credential = await createUserWithEmailAndPassword(
@@ -54,9 +67,14 @@ export async function registerUser(
     password
   );
 
-  await updateProfile(credential.user, {
-    displayName: cleanName,
-  });
+  try {
+    await updateProfile(credential.user, {
+      displayName: cleanName,
+    });
+  } catch (error) {
+    await credential.user.delete().catch(() => undefined);
+    throw error;
+  }
 
   return credential.user;
 }
@@ -67,8 +85,8 @@ export async function loginUser(
 ): Promise<User> {
   const cleanEmail = email.trim().toLowerCase();
 
-  if (!cleanEmail) {
-    throw new Error('Debes ingresar tu correo.');
+  if (!isValidEmail(cleanEmail)) {
+    throw new Error('El correo electrónico no es válido.');
   }
 
   if (!password) {
@@ -89,7 +107,7 @@ export async function loginWithGoogle(): Promise<User> {
 
   if (!GoogleSignin) {
     throw new Error(
-      'El inicio de sesión con Google no está disponible en Expo Go. Usa tu correo y contraseña.'
+      'El inicio de sesión con Google no está disponible en Expo Go. Usa correo y contraseña o una versión de desarrollo compatible.'
     );
   }
 
@@ -98,7 +116,6 @@ export async function loginWithGoogle(): Promise<User> {
   });
 
   const response = await GoogleSignin.signIn();
-
   const idToken = response.data?.idToken;
 
   if (!idToken) {
@@ -122,8 +139,8 @@ export async function resetPassword(
 ): Promise<void> {
   const cleanEmail = email.trim().toLowerCase();
 
-  if (!cleanEmail) {
-    throw new Error('Debes ingresar tu correo.');
+  if (!isValidEmail(cleanEmail)) {
+    throw new Error('Ingresa un correo electrónico válido.');
   }
 
   await sendPasswordResetEmail(auth, cleanEmail);
@@ -134,6 +151,7 @@ export async function logoutUser(): Promise<void> {
     const GoogleSignin = getGoogleSignin();
     await GoogleSignin?.signOut();
   } catch {
+    // Firebase cerrará la sesión aunque falle el cierre de Google.
   }
 
   await signOut(auth);
@@ -150,32 +168,38 @@ export function subscribeToAuthChanges(
 }
 
 export function getFirebaseErrorMessage(
-  error: any
+  error: unknown
 ): string {
-  switch (error?.code) {
+  const code =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error
+      ? String(error.code)
+      : '';
+
+  switch (code) {
     case 'auth/invalid-email':
       return 'El correo electrónico no es válido.';
 
     case 'auth/user-not-found':
-      return 'No existe una cuenta con este correo.';
+      return 'No se encontró una cuenta con esos datos.';
 
     case 'auth/wrong-password':
-      return 'La contraseña es incorrecta.';
-
     case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
       return 'El correo o la contraseña son incorrectos.';
 
     case 'auth/email-already-in-use':
       return 'Ya existe una cuenta con este correo.';
 
     case 'auth/weak-password':
-      return 'La contraseña es demasiado débil.';
+      return 'La contraseña debe tener al menos 6 caracteres.';
 
     case 'auth/network-request-failed':
-      return 'No hay conexión con Firebase. Revisa tu conexión a Internet.';
+      return 'No se pudo conectar con Firebase. Revisa tu conexión a Internet.';
 
     case 'auth/too-many-requests':
-      return 'Demasiados intentos. Intenta nuevamente más tarde.';
+      return 'Demasiados intentos. Inténtalo nuevamente más tarde.';
 
     case 'auth/popup-closed-by-user':
       return 'El inicio de sesión con Google fue cancelado.';
@@ -183,7 +207,17 @@ export function getFirebaseErrorMessage(
     case 'auth/account-exists-with-different-credential':
       return 'Ya existe una cuenta con este correo usando otro método de inicio de sesión.';
 
+    case 'auth/operation-not-allowed':
+      return 'Este método de inicio de sesión no está habilitado en Firebase.';
+
+    case 'auth/weak-password':
+      return 'La contraseña debe tener al menos 6 caracteres.';
+
     default:
-      return error?.message || 'Ocurrió un error al autenticarte.';
+      if (error instanceof Error && error.message) {
+        return error.message;
+      }
+
+      return 'Ocurrió un error al autenticarte. Inténtalo nuevamente.';
   }
 }

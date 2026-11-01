@@ -1,11 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
 import { updateProfile } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
+  Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,19 +13,27 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomNav } from '../components/bottom-nav';
+import { colors } from '../constants/colors';
 import {
   getFirebaseErrorMessage,
   logoutUser,
   resetPassword,
 } from '../firebase/auth';
-import { auth } from '../firebase/config';
+import { auth, db } from '../firebase/config';
 import {
   createUserProfile,
   getUserProfile,
   updateUserProfile,
 } from '../firebase/firestore';
 import { useAuthUser } from '../hooks/useAuthUser';
+
+type Message = {
+  type: 'success' | 'error';
+  text: string;
+};
 
 export default function ProfileScreen() {
   const { user, loading: authLoading } = useAuthUser();
@@ -39,6 +47,15 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [message, setMessage] = useState<Message | null>(null);
+  const [logoutVisible, setLogoutVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const provider: 'email' | 'google' = user?.providerData.some(
+    (item) => item.providerId === 'google.com'
+  )
+    ? 'google'
+    : 'email';
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -55,20 +72,36 @@ export default function ProfileScreen() {
 
       let active = true;
       setLoading(true);
+      setMessage(null);
 
       getUserProfile(uid)
-        .then((profile) => {
+        .then(async (profile) => {
           if (!active) return;
 
-          const currentName = profile?.name ?? displayName;
+          // Si el usuario entró con Google y aún no tiene perfil, se crea vacío.
+          if (!profile) {
+            await createUserProfile(
+              uid,
+              displayName,
+              email,
+              user?.photoURL ?? null,
+              provider
+            );
+          }
+
+          const currentName = profile?.name || displayName;
+          const extra = profile as { notificationsEnabled?: boolean } | null;
+
           setName(currentName);
           setSavedName(currentName);
+          setNotifications(extra?.notificationsEnabled ?? true);
         })
         .catch((error) => {
-          Alert.alert(
-            'No se pudo cargar tu perfil',
-            getFirebaseErrorMessage(error)
-          );
+          if (!active) return;
+          setMessage({
+            type: 'error',
+            text: getFirebaseErrorMessage(error),
+          });
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -77,393 +110,327 @@ export default function ProfileScreen() {
       return () => {
         active = false;
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [uid, displayName])
   );
 
   const saveProfile = async () => {
     const cleanName = name.trim();
+    setMessage(null);
 
     if (!cleanName) {
-      Alert.alert('Error', 'El nombre no puede estar vacío.');
+      setMessage({ type: 'error', text: 'El nombre no puede estar vacío.' });
       return;
     }
 
-    if (!uid) return;
-
-    const provider = user?.providerData.some(
-      (item) => item.providerId === 'google.com'
-    )
-      ? 'google'
-      : 'email';
+    if (!uid || !auth.currentUser) return;
 
     try {
       setSaving(true);
 
-      await createUserProfile(
-        uid,
-        cleanName,
-        email,
-        user?.photoURL ?? null,
-        provider
-      );
+      await updateProfile(auth.currentUser, { displayName: cleanName });
 
-      await updateUserProfile(uid, { name: cleanName });
+      const profile = await getUserProfile(uid);
 
-      if (auth.currentUser) {
-        await updateProfile(auth.currentUser, {
-          displayName: cleanName,
-        });
+      if (profile) {
+        await updateUserProfile(uid, { name: cleanName });
+      } else {
+        await createUserProfile(
+          uid,
+          cleanName,
+          email,
+          user?.photoURL ?? null,
+          provider
+        );
       }
 
       setName(cleanName);
       setSavedName(cleanName);
       setEditing(false);
-
-      Alert.alert(
-        'Perfil actualizado',
-        'Tus datos se actualizaron correctamente.'
-      );
+      setMessage({ type: 'success', text: 'Tu perfil se guardó correctamente.' });
     } catch (error) {
-      Alert.alert(
-        'No se pudo guardar',
-        getFirebaseErrorMessage(error)
-      );
+      setMessage({ type: 'error', text: getFirebaseErrorMessage(error) });
     } finally {
       setSaving(false);
     }
   };
 
-  const changePassword = () => {
-    if (!email) return;
-
-    Alert.alert(
-      'Cambiar contraseña',
-      `Te enviaremos un correo a ${email} para que la cambies.`,
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Enviar correo',
-          onPress: async () => {
-            try {
-              await resetPassword(email);
-
-              Alert.alert(
-                'Correo enviado',
-                'Revisa tu bandeja de entrada.'
-              );
-            } catch (error) {
-              Alert.alert(
-                'No se pudo enviar',
-                getFirebaseErrorMessage(error)
-              );
-            }
-          },
-        },
-      ]
-    );
+  const cancelEdit = () => {
+    setName(savedName);
+    setEditing(false);
+    setMessage(null);
   };
 
-  const logout = () => {
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Estás seguro de que quieres cerrar sesión?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Cerrar sesión',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await logoutUser();
-              router.replace('/');
-            } catch (error) {
-              Alert.alert(
-                'No se pudo cerrar sesión',
-                getFirebaseErrorMessage(error)
-              );
-            }
-          },
-        },
-      ]
-    );
+  const toggleNotifications = async (value: boolean) => {
+    if (!uid) return;
+
+    setNotifications(value);
+
+    try {
+      await setDoc(
+        doc(db, 'users', uid),
+        { notificationsEnabled: value },
+        { merge: true }
+      );
+    } catch (error) {
+      setNotifications(!value);
+      setMessage({ type: 'error', text: getFirebaseErrorMessage(error) });
+    }
   };
 
-  const showComingSoon = (section: string) => {
-    Alert.alert(
-      section,
-      'Esta función estará disponible en la siguiente etapa de Roomie.'
-    );
+  const handleResetPassword = async () => {
+    setMessage(null);
+
+    if (provider === 'google') {
+      setMessage({
+        type: 'error',
+        text: 'Entraste con Google. Tu contraseña se administra desde tu cuenta de Google.',
+      });
+      return;
+    }
+
+    try {
+      await resetPassword(email);
+      setMessage({
+        type: 'success',
+        text: `Te enviamos un correo a ${email} para cambiar tu contraseña.`,
+      });
+    } catch (error) {
+      setMessage({ type: 'error', text: getFirebaseErrorMessage(error) });
+    }
   };
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await logoutUser();
+      setLogoutVisible(false);
+      router.replace('/');
+    } catch (error) {
+      setLogoutVisible(false);
+      setMessage({ type: 'error', text: getFirebaseErrorMessage(error) });
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const initial = (savedName || email || '?').charAt(0).toUpperCase();
 
   if (authLoading || loading) {
     return (
-      <SafeAreaView
-        style={[
-          styles.container,
-          { justifyContent: 'center', alignItems: 'center' },
-        ]}
-      >
-        <ActivityIndicator size="large" color="#E21B2D" />
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Cargando tu perfil...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-
-        <Text style={styles.headerTitle}>Mi perfil</Text>
-
-        <View style={styles.headerSpace} />
-      </View>
-
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
-        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.profileCard}>
+        <View style={styles.header}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backText}>‹</Text>
+          </Pressable>
+
+          <View>
+            <Text style={styles.title}>Perfil</Text>
+            <Text style={styles.subtitle}>Administra tu cuenta</Text>
+          </View>
+        </View>
+
+        <View style={styles.avatarCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(name.trim().charAt(0) || email.charAt(0) || '?').toUpperCase()}
+            <Text style={styles.avatarText}>{initial}</Text>
+          </View>
+
+          <Text style={styles.userName}>{savedName || 'Sin nombre'}</Text>
+          <Text style={styles.userEmail}>{email}</Text>
+
+          <View style={styles.providerBadge}>
+            <Text style={styles.providerText}>
+              {provider === 'google' ? 'Cuenta de Google' : 'Cuenta con correo'}
             </Text>
           </View>
-
-          <Text style={styles.profileName}>
-            {name || 'Sin nombre'}
-          </Text>
-
-          <Text style={styles.profileEmail}>{email}</Text>
-
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>Administrador</Text>
-          </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Información personal
-          </Text>
-
-          <View style={styles.formCard}>
-            <Text style={styles.label}>Nombre</Text>
-
-            <TextInput
+        {message ? (
+          <View
+            style={[
+              styles.messageBox,
+              message.type === 'success'
+                ? styles.messageSuccess
+                : styles.messageError,
+            ]}
+          >
+            <Text
               style={[
-                styles.input,
-                !editing && styles.inputDisabled,
+                styles.messageText,
+                message.type === 'success'
+                  ? styles.messageTextSuccess
+                  : styles.messageTextError,
               ]}
-              value={name}
-              onChangeText={setName}
-              editable={editing}
-              placeholder="Tu nombre"
-              placeholderTextColor="#999999"
-            />
-
-            <Text style={styles.label}>Correo electrónico</Text>
-
-            <TextInput
-              style={[styles.input, styles.inputDisabled]}
-              value={email}
-              editable={false}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholder="correo@ejemplo.com"
-              placeholderTextColor="#999999"
-            />
-
-            {editing ? (
-              <View style={styles.editButtons}>
-                <Pressable
-                  style={styles.cancelButton}
-                  onPress={() => {
-                    setEditing(false);
-                    setName(savedName);
-                  }}
-                >
-                  <Text style={styles.cancelButtonText}>
-                    Cancelar
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  style={styles.saveButton}
-                  onPress={saveProfile}
-                  disabled={saving}
-                >
-                  <Text style={styles.saveButtonText}>
-                    {saving ? 'Guardando...' : 'Guardar'}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                style={styles.editButton}
-                onPress={() => setEditing(true)}
-              >
-                <Text style={styles.editButtonText}>
-                  Editar información
-                </Text>
-              </Pressable>
-            )}
+            >
+              {message.text}
+            </Text>
           </View>
+        ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Datos personales</Text>
+
+          <Text style={styles.label}>Nombre</Text>
+          <TextInput
+            style={[styles.input, !editing && styles.inputDisabled]}
+            value={name}
+            onChangeText={(text) => {
+              setName(text);
+              setMessage(null);
+            }}
+            editable={editing}
+            placeholder="Tu nombre"
+            placeholderTextColor={colors.textMuted}
+          />
+
+          <Text style={styles.label}>Correo electrónico</Text>
+          <TextInput
+            style={[styles.input, styles.inputDisabled]}
+            value={email}
+            editable={false}
+          />
+
+          {editing ? (
+            <View style={styles.row}>
+              <Pressable
+                style={[styles.outlineButton, styles.flex]}
+                onPress={cancelEdit}
+                disabled={saving}
+              >
+                <Text style={styles.outlineButtonText}>Cancelar</Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.primaryButton,
+                  styles.flex,
+                  saving && styles.disabled,
+                ]}
+                onPress={saveProfile}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Guardar</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={styles.primaryButton}
+              onPress={() => {
+                setEditing(true);
+                setMessage(null);
+              }}
+            >
+              <Text style={styles.primaryButtonText}>Editar nombre</Text>
+            </Pressable>
+          )}
         </View>
 
-        <View style={styles.section}>
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>Preferencias</Text>
 
-          <View style={styles.optionCard}>
-            <View style={styles.optionInfo}>
-              <Text style={styles.optionTitle}>
-                Notificaciones
-              </Text>
-
-              <Text style={styles.optionDescription}>
-                Recibir avisos sobre gastos, tareas y actividad.
+          <View style={styles.settingRow}>
+            <View style={styles.flex}>
+              <Text style={styles.settingTitle}>Notificaciones</Text>
+              <Text style={styles.settingText}>
+                Recibe avisos de gastos, tareas y compras
               </Text>
             </View>
 
             <Switch
               value={notifications}
-              onValueChange={setNotifications}
-              trackColor={{
-                false: '#D5D5D5',
-                true: '#F3A2A9',
-              }}
-              thumbColor={
-                notifications ? '#E21B2D' : '#FFFFFF'
-              }
+              onValueChange={toggleNotifications}
+              trackColor={{ false: colors.border, true: colors.primaryLight }}
+              thumbColor={notifications ? colors.primary : colors.surface}
             />
           </View>
+
+          <Pressable
+            style={styles.settingRow}
+            onPress={() => router.push('/notifications')}
+          >
+            <Text style={styles.settingTitle}>Ver notificaciones</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Cuenta</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Seguridad</Text>
 
-          <View style={styles.menuCard}>
-            <Pressable
-              style={styles.menuItem}
-              onPress={changePassword}
-            >
-              <View>
-                <Text style={styles.menuTitle}>
-                  Cambiar contraseña
-                </Text>
-
-                <Text style={styles.menuDescription}>
-                  Te enviamos un correo para actualizarla.
-                </Text>
-              </View>
-
-              <Text style={styles.arrow}>›</Text>
-            </Pressable>
-
-            <View style={styles.separator} />
-
-            <Pressable
-              style={styles.menuItem}
-              onPress={() =>
-                showComingSoon('Privacidad')
-              }
-            >
-              <View>
-                <Text style={styles.menuTitle}>
-                  Privacidad
-                </Text>
-
-                <Text style={styles.menuDescription}>
-                  Configura tus opciones de privacidad.
-                </Text>
-              </View>
-
-              <Text style={styles.arrow}>›</Text>
-            </Pressable>
-
-            <View style={styles.separator} />
-
-            <Pressable
-              style={styles.menuItem}
-              onPress={() =>
-                showComingSoon('Ayuda y soporte')
-              }
-            >
-              <View>
-                <Text style={styles.menuTitle}>
-                  Ayuda y soporte
-                </Text>
-
-                <Text style={styles.menuDescription}>
-                  Consulta información y soporte de Roomie.
-                </Text>
-              </View>
-
-              <Text style={styles.arrow}>›</Text>
-            </Pressable>
-          </View>
+          <Pressable style={styles.settingRow} onPress={handleResetPassword}>
+            <Text style={styles.settingTitle}>Cambiar contraseña</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
         </View>
 
         <Pressable
           style={styles.logoutButton}
-          onPress={logout}
+          onPress={() => setLogoutVisible(true)}
         >
-          <Text style={styles.logoutText}>
-            Cerrar sesión
-          </Text>
+          <Text style={styles.logoutText}>Cerrar sesión</Text>
         </Pressable>
-
-        <Text style={styles.version}>
-          Roomie · Versión 1.0
-        </Text>
       </ScrollView>
 
-      <View style={styles.bottomNav}>
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/home')}
-        >
-          <Text style={styles.navIcon}>⌂</Text>
-          <Text style={styles.navText}>Inicio</Text>
-        </Pressable>
+            <BottomNav active="profile" />
 
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/expenses')}
-        >
-          <Text style={styles.navIcon}>$</Text>
-          <Text style={styles.navText}>Gastos</Text>
-        </Pressable>
+      <Modal
+        visible={logoutVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLogoutVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Cerrar sesión</Text>
+            <Text style={styles.modalText}>
+              ¿Seguro que quieres salir? Tu información queda guardada en tu
+              cuenta.
+            </Text>
 
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/tasks')}
-        >
-          <Text style={styles.navIcon}>✓</Text>
-          <Text style={styles.navText}>Tareas</Text>
-        </Pressable>
+            <View style={styles.row}>
+              <Pressable
+                style={[styles.outlineButton, styles.flex]}
+                onPress={() => setLogoutVisible(false)}
+                disabled={loggingOut}
+              >
+                <Text style={styles.outlineButtonText}>Cancelar</Text>
+              </Pressable>
 
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/profile')}
-        >
-          <Text style={[styles.navIcon, styles.activeIcon]}>
-            ●
-          </Text>
-          <Text style={[styles.navText, styles.activeText]}>
-            Perfil
-          </Text>
-        </Pressable>
-      </View>
+              <Pressable
+                style={[
+                  styles.primaryButton,
+                  styles.flex,
+                  loggingOut && styles.disabled,
+                ]}
+                onPress={handleLogout}
+                disabled={loggingOut}
+              >
+                {loggingOut ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Salir</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -471,317 +438,313 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F7F7',
+    backgroundColor: colors.background,
+  },
+
+  content: {
+    padding: 20,
+    paddingBottom: 100,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: colors.textSecondary,
   },
 
   header: {
-    height: 70,
-    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EAEAEA',
+    marginBottom: 20,
   },
 
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
-    backgroundColor: '#F2F2F2',
-    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: colors.surface,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
 
   backText: {
-    fontSize: 34,
-    color: '#222222',
-    lineHeight: 38,
+    fontSize: 28,
+    color: colors.primary,
+    marginTop: -3,
   },
 
-  headerTitle: {
-    fontSize: 21,
+  title: {
+    fontSize: 26,
     fontWeight: '800',
-    color: '#111111',
+    color: colors.text,
   },
 
-  headerSpace: {
-    width: 42,
+  subtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
 
-  content: {
-    padding: 18,
-    paddingBottom: 100,
-  },
-
-  profileCard: {
-    backgroundColor: '#FFFFFF',
+  avatarCard: {
+    backgroundColor: '#1F1F1F',
     borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
-    paddingVertical: 25,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
+    marginBottom: 16,
   },
 
   avatar: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: '#E21B2D',
-    justifyContent: 'center',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: colors.primary,
     alignItems: 'center',
+    justifyContent: 'center',
   },
 
   avatarText: {
-    color: '#FFFFFF',
-    fontSize: 31,
+    fontSize: 32,
     fontWeight: '800',
+    color: colors.surface,
   },
 
-  profileName: {
+  userName: {
     fontSize: 21,
     fontWeight: '800',
-    color: '#111111',
-    marginTop: 12,
+    color: colors.surface,
+    marginTop: 14,
   },
 
-  profileEmail: {
-    fontSize: 13,
-    color: '#777777',
+  userEmail: {
+    fontSize: 14,
+    color: '#D0D0D0',
     marginTop: 4,
   },
 
-  roleBadge: {
-    backgroundColor: '#FFF0F2',
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: 15,
-    marginTop: 10,
+  providerBadge: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginTop: 12,
   },
 
-  roleText: {
-    color: '#E21B2D',
-    fontSize: 11,
+  providerText: {
+    fontSize: 12,
     fontWeight: '700',
+    color: colors.primary,
   },
 
-  section: {
-    marginTop: 24,
+  messageBox: {
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+
+  messageSuccess: {
+    backgroundColor: '#E7F5EC',
+  },
+
+  messageError: {
+    backgroundColor: colors.primaryLight,
+  },
+
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+
+  messageTextSuccess: {
+    color: colors.success,
+  },
+
+  messageTextError: {
+    color: '#C62828',
+  },
+
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: 20,
+    marginBottom: 16,
   },
 
   sectionTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#111111',
-    marginBottom: 10,
-  },
-
-  formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-  },
-
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#444444',
+    color: colors.text,
     marginBottom: 6,
   },
 
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+
   input: {
-    height: 46,
+    height: 50,
     borderWidth: 1,
-    borderColor: '#DDDDDD',
-    borderRadius: 10,
-    paddingHorizontal: 13,
-    color: '#111111',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 14,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: colors.text,
+    backgroundColor: colors.surface,
   },
 
   inputDisabled: {
-    backgroundColor: '#F5F5F5',
-    color: '#666666',
+    backgroundColor: colors.inputBackground,
+    color: colors.textSecondary,
   },
 
-  editButton: {
-    height: 45,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E21B2D',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  editButtonText: {
-    color: '#E21B2D',
-    fontWeight: '700',
-  },
-
-  editButtons: {
+  row: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
+    marginTop: 18,
   },
 
-  cancelButton: {
+  flex: {
     flex: 1,
-    height: 45,
-    borderRadius: 10,
-    backgroundColor: '#EEEEEE',
+  },
+
+  primaryButton: {
+    height: 48,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
+    marginTop: 18,
   },
 
-  cancelButtonText: {
-    color: '#555555',
-    fontWeight: '700',
-  },
-
-  saveButton: {
-    flex: 1,
-    height: 45,
-    borderRadius: 10,
-    backgroundColor: '#E21B2D',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-
-  optionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-  },
-
-  optionInfo: {
-    flex: 1,
-    paddingRight: 10,
-  },
-
-  optionTitle: {
-    color: '#111111',
+  primaryButtonText: {
     fontSize: 15,
     fontWeight: '700',
+    color: colors.surface,
   },
 
-  optionDescription: {
-    color: '#777777',
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 4,
-  },
-
-  menuCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+  outlineButton: {
+    height: 48,
     borderWidth: 1,
-    borderColor: '#EEEEEE',
-    overflow: 'hidden',
+    borderColor: colors.primary,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
   },
 
-  menuItem: {
-    minHeight: 70,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+  outlineButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+
+  disabled: {
+    opacity: 0.7,
+  },
+
+  settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
 
-  menuTitle: {
-    color: '#111111',
-    fontSize: 14,
-    fontWeight: '700',
+  settingTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
   },
 
-  menuDescription: {
-    color: '#888888',
-    fontSize: 11,
-    marginTop: 4,
+  settingText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 3,
   },
 
-  arrow: {
-    fontSize: 27,
-    color: '#999999',
-    marginLeft: 'auto',
-  },
-
-  separator: {
-    height: 1,
-    backgroundColor: '#EEEEEE',
-    marginLeft: 16,
+  chevron: {
+    fontSize: 24,
+    color: colors.primary,
   },
 
   logoutButton: {
-    height: 50,
-    borderRadius: 11,
-    backgroundColor: '#FFE8EA',
-    justifyContent: 'center',
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
     alignItems: 'center',
-    marginTop: 25,
+    justifyContent: 'center',
+    marginTop: 4,
   },
 
   logoutText: {
-    color: '#E21B2D',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary,
   },
 
-  version: {
-    textAlign: 'center',
-    color: '#AAAAAA',
-    fontSize: 11,
-    marginTop: 15,
-  },
-
-  bottomNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 65,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
+  bottomNavigation: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+    paddingVertical: 15,
   },
 
   navItem: {
     alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+
+  navItemActive: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+
+  navItemText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
-    width: '25%',
+    padding: 24,
   },
 
-  navIcon: {
-    fontSize: 18,
-    color: '#555555',
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 22,
+    borderTopWidth: 5,
+    borderTopColor: colors.primary,
   },
 
-  navText: {
-    fontSize: 11,
-    color: '#666666',
-    marginTop: 3,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.text,
   },
 
-  activeIcon: {
-    color: '#E21B2D',
-  },
-
-  activeText: {
-    color: '#E21B2D',
-    fontWeight: '700',
+  modalText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    marginTop: 10,
   },
 });

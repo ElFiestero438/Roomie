@@ -6,7 +6,11 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
 // @ts-ignore
 import { getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  type Firestore,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDJLjvgfBIQWqdwYzwtNN_SBm2gH25bgck",
@@ -31,4 +35,15 @@ try {
 }
 
 export const auth = authInstance;
-export const db = getFirestore(app);
+
+// Long polling evita el error "client is offline" de Firestore en React Native.
+let dbInstance: Firestore;
+try {
+  dbInstance = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  });
+} catch {
+  dbInstance = getFirestore(app);
+}
+
+export const db = dbInstance;

@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import { Alert } from '../components/app-alert';
 
 import { getFirebaseErrorMessage, registerUser } from '../firebase/auth';
 import { createUserProfile } from '../firebase/firestore';

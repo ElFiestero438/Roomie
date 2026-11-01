@@ -1,7 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -11,6 +10,8 @@ import {
   View,
 } from 'react-native';
 
+import { Alert } from '../components/app-alert';
+import { BottomNav } from '../components/bottom-nav';
 import type { Roomie, Tarea } from '../firebase/firestore';
 import { getRoomies, getTareas, saveTarea } from '../firebase/firestore';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -289,36 +290,7 @@ export default function TasksScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.bottomNavigation}>
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/home')}
-        >
-          <Text style={styles.navIcon}>⌂</Text>
-          <Text style={styles.navText}>Inicio</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/expenses')}
-        >
-          <Text style={styles.navIcon}>$</Text>
-          <Text style={styles.navText}>Gastos</Text>
-        </Pressable>
-
-        <Pressable style={styles.navItem}>
-          <Text style={styles.navIconActive}>✓</Text>
-          <Text style={styles.navTextActive}>Tareas</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.navItem}
-          onPress={() => router.push('/profile')}
-        >
-          <Text style={styles.navIcon}>●</Text>
-          <Text style={styles.navText}>Perfil</Text>
-        </Pressable>
-      </View>
+      <BottomNav active="tasks" />
 
       <Modal
         animationType="slide"
@@ -686,49 +658,6 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 12,
     marginTop: 5,
-  },
-
-  bottomNavigation: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 75,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-
-  navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 70,
-  },
-
-  navIcon: {
-    color: '#999999',
-    fontSize: 19,
-  },
-
-  navIconActive: {
-    color: '#E21B2D',
-    fontSize: 19,
-  },
-
-  navText: {
-    color: '#999999',
-    fontSize: 11,
-    marginTop: 4,
-  },
-
-  navTextActive: {
-    color: '#E21B2D',
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 4,
   },
 
   modalOverlay: {

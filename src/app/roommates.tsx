@@ -1,62 +1,193 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
-type Roommate = {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  balance: number;
-};
+import { Alert } from '../components/app-alert';
+import type { Roomie, Vivienda } from '../firebase/firestore';
+import {
+  deleteRoomie,
+  getRoomies,
+  getViviendas,
+  saveRoomie,
+  saveVivienda,
+} from '../firebase/firestore';
+import { useAuthUser } from '../hooks/useAuthUser';
+
+const VIVIENDA_ID = 'principal';
+
+type ModalMode = 'roomie' | 'vivienda' | null;
 
 export default function RoommatesScreen() {
-  const [modalVisible, setModalVisible] = useState(false);
+  const { user, loading: authLoading } = useAuthUser();
+  const uid = user?.uid;
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>(null);
+
+  const [vivienda, setVivienda] = useState<Vivienda | null>(null);
+  const [roommates, setRoommates] = useState<Roomie[]>([]);
+
+  // Campos del formulario de roomie
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
 
-  const [roommates, setRoommates] = useState<Roommate[]>([
-    {
-      id: 1,
-      name: 'Sebastián',
-      email: 'sebastian@correo.com',
-      role: 'Administrador',
-      balance: 85000,
-    },
-    {
-      id: 2,
-      name: 'Carlos',
-      email: 'carlos@correo.com',
-      role: 'Roomie',
-      balance: -25000,
-    },
-    {
-      id: 3,
-      name: 'Laura',
-      email: 'laura@correo.com',
-      role: 'Roomie',
-      balance: 40000,
-    },
-    {
-      id: 4,
-      name: 'Andrés',
-      email: 'andres@correo.com',
-      role: 'Roomie',
-      balance: -10000,
-    },
-  ]);
+  // Campos del formulario de vivienda
+  const [homeName, setHomeName] = useState('');
+  const [homeAddress, setHomeAddress] = useState('');
 
-  const addRoommate = () => {
-    if (!name.trim() || !email.trim()) {
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/');
+    }
+  }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
+
+      let active = true;
+      setLoading(true);
+
+      Promise.all([getViviendas(uid), getRoomies(uid)])
+        .then(([viviendas, roomies]) => {
+          if (!active) return;
+
+          setVivienda(viviendas[0] ?? null);
+
+          // El administrador (tú) siempre aparece primero.
+          setRoommates(
+            [...roomies].sort((a, b) => {
+              if (a.id === uid) return -1;
+              if (b.id === uid) return 1;
+              return a.nombre.localeCompare(b.nombre);
+            })
+          );
+        })
+        .catch((error: any) => {
+          if (!active) return;
+          Alert.alert(
+            'No se pudo cargar la vivienda',
+            error?.message ?? 'Intenta de nuevo.'
+          );
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [uid])
+  );
+
+  const closeModal = () => {
+    if (saving) return;
+    setModalMode(null);
+    setName('');
+    setEmail('');
+  };
+
+  const openViviendaModal = () => {
+    setHomeName(vivienda?.nombre ?? '');
+    setHomeAddress(vivienda?.direccion ?? '');
+    setModalMode('vivienda');
+  };
+
+  const openRoomieModal = () => {
+    if (!vivienda) {
+      Alert.alert(
+        'Primero crea tu vivienda',
+        'Antes de invitar roomies, ponle un nombre a tu vivienda.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Crear vivienda', onPress: openViviendaModal },
+        ]
+      );
+      return;
+    }
+
+    setModalMode('roomie');
+  };
+
+  const saveHome = async () => {
+    if (!uid || !user) return;
+
+    const cleanName = homeName.trim();
+
+    if (!cleanName) {
+      Alert.alert(
+        'Campo incompleto',
+        'Escribe el nombre de tu vivienda.'
+      );
+      return;
+    }
+
+    const isNew = !vivienda;
+
+    const newVivienda: Vivienda = {
+      id: vivienda?.id ?? VIVIENDA_ID,
+      nombre: cleanName,
+      direccion: homeAddress.trim(),
+      createdAt: vivienda?.createdAt ?? Date.now(),
+    };
+
+    try {
+      setSaving(true);
+      await saveVivienda(uid, newVivienda);
+
+      // Al crear la vivienda, tú quedas como administrador.
+      if (!roommates.some((item) => item.id === uid)) {
+        const admin: Roomie = {
+          id: uid,
+          nombre: user.displayName || user.email || 'Yo',
+          email: user.email ?? '',
+          createdAt: Date.now(),
+        };
+
+        await saveRoomie(uid, admin);
+        setRoommates((current) => [admin, ...current]);
+      }
+
+      setVivienda(newVivienda);
+      setSaving(false);
+      setModalMode(null);
+
+      Alert.alert(
+        isNew ? 'Vivienda creada' : 'Vivienda actualizada',
+        isNew
+          ? `${cleanName} está lista. Ahora puedes invitar a tus roomies.`
+          : 'Los datos de tu vivienda se guardaron.'
+      );
+    } catch (error: any) {
+      setSaving(false);
+      Alert.alert(
+        'No se pudo guardar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
+  };
+
+  const addRoommate = async () => {
+    if (!uid) return;
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanName || !cleanEmail) {
       Alert.alert(
         'Campos incompletos',
         'Ingresa el nombre y correo del nuevo roomie.'
@@ -64,7 +195,7 @@ export default function RoommatesScreen() {
       return;
     }
 
-    if (!email.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       Alert.alert(
         'Correo inválido',
         'Ingresa un correo electrónico válido.'
@@ -72,28 +203,110 @@ export default function RoommatesScreen() {
       return;
     }
 
-    const newRoommate: Roommate = {
-      id: Date.now(),
-      name: name.trim(),
-      email: email.trim(),
-      role: 'Roomie',
-      balance: 0,
+    if (
+      roommates.some(
+        (item) => (item.email ?? '').toLowerCase() === cleanEmail
+      )
+    ) {
+      Alert.alert(
+        'Roomie repetido',
+        'Ya hay un integrante con ese correo.'
+      );
+      return;
+    }
+
+    const newRoommate: Roomie = {
+      id: Date.now().toString(),
+      nombre: cleanName,
+      email: cleanEmail,
+      createdAt: Date.now(),
     };
 
-    setRoommates((current) => [...current, newRoommate]);
+    try {
+      setSaving(true);
+      await saveRoomie(uid, newRoommate);
 
-    setName('');
-    setEmail('');
-    setModalVisible(false);
+      setRoommates((current) => [...current, newRoommate]);
+      setSaving(false);
+      setName('');
+      setEmail('');
+      setModalMode(null);
 
-    Alert.alert(
-      'Roomie agregado',
-      `${newRoommate.name} fue agregado a la vivienda.`
-    );
+      Alert.alert(
+        'Roomie agregado',
+        `${newRoommate.nombre} fue agregado a la vivienda. ¿Quieres enviarle la invitación por correo?`,
+        [
+          { text: 'Ahora no', style: 'cancel' },
+          {
+            text: 'Enviar invitación',
+            onPress: () => sendInvitation(newRoommate),
+          },
+        ]
+      );
+    } catch (error: any) {
+      setSaving(false);
+      Alert.alert(
+        'No se pudo guardar',
+        error?.message ?? 'Intenta de nuevo.'
+      );
+    }
   };
 
-  const removeRoommate = (roommate: Roommate) => {
-    if (roommate.role === 'Administrador') {
+  // Abre la app de correo del celular con la invitación ya escrita.
+  const sendInvitation = async (roommate: Roomie) => {
+    if (!roommate.email) {
+      Alert.alert(
+        'Sin correo',
+        'Este roomie no tiene un correo electrónico registrado.'
+      );
+      return;
+    }
+
+    const inviter = user?.displayName || user?.email || 'Tu roomie';
+    const homeName = vivienda?.nombre ?? 'nuestra vivienda';
+
+    const subject = `${inviter} te invitó a Roomie`;
+    const body =
+      `Hola ${roommate.nombre},\n\n` +
+      `${inviter} te invitó a unirte a "${homeName}" en Roomie, ` +
+      'la app para organizar los gastos, las tareas y las compras de la casa.\n\n' +
+      `Cuando tengas Roomie instalada, crea tu cuenta con este correo: ${roommate.email}\n\n` +
+      '¡Nos vemos en Roomie!';
+
+    const url = `mailto:${roommate.email}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
+
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(
+        'No se pudo abrir el correo',
+        'Revisa que tengas una app de correo (como Gmail) instalada en tu celular.'
+      );
+    }
+  };
+
+  // Opciones del botón ••• de cada roomie.
+  const showRoommateOptions = (roommate: Roomie) => {
+    Alert.alert(roommate.nombre, roommate.email || '¿Qué deseas hacer?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Reenviar invitación',
+        onPress: () => sendInvitation(roommate),
+      },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: () => removeRoommate(roommate),
+      },
+    ]);
+  };
+
+  const removeRoommate = (roommate: Roomie) => {
+    if (!uid) return;
+
+    if (roommate.id === uid) {
       Alert.alert(
         'Acción no disponible',
         'El administrador no puede ser eliminado de la vivienda.'
@@ -103,37 +316,43 @@ export default function RoommatesScreen() {
 
     Alert.alert(
       'Eliminar roomie',
-      `¿Quieres eliminar a ${roommate.name} de la vivienda?`,
+      `¿Quieres eliminar a ${roommate.nombre} de la vivienda?`,
       [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
+        { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            const previous = roommates;
+
+            // Desaparece de la lista al instante y luego se borra de Firebase.
             setRoommates((current) =>
               current.filter((item) => item.id !== roommate.id)
             );
+
+            try {
+              await deleteRoomie(uid, roommate.id);
+            } catch (error: any) {
+              setRoommates(previous);
+              Alert.alert(
+                'No se pudo eliminar',
+                error?.message ?? 'Intenta de nuevo.'
+              );
+            }
           },
         },
       ]
     );
   };
 
-  const inviteRoommate = () => {
-    setModalVisible(true);
-  };
-
-  const formatCurrency = (value: number) => {
-    const absoluteValue = Math.abs(value).toLocaleString('es-CO');
-
-    if (value > 0) return `+$${absoluteValue}`;
-    if (value < 0) return `-$${absoluteValue}`;
-
-    return '$0';
-  };
+  if (authLoading || loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E21B2D" />
+        <Text style={styles.loadingText}>Cargando tu vivienda...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -152,31 +371,39 @@ export default function RoommatesScreen() {
           <View style={styles.headerInfo}>
             <Text style={styles.title}>Roomies</Text>
             <Text style={styles.subtitle}>
-              Personas de Casa Roomie
+              {vivienda
+                ? `Personas de ${vivienda.nombre}`
+                : 'Configura tu vivienda'}
             </Text>
           </View>
 
           <Pressable
             style={styles.addButton}
-            onPress={inviteRoommate}
+            onPress={openRoomieModal}
           >
             <Text style={styles.addButtonText}>+</Text>
           </Pressable>
         </View>
 
-        <View style={styles.homeCard}>
-          <View>
+        <Pressable style={styles.homeCard} onPress={openViviendaModal}>
+          <View style={styles.homeTextContainer}>
             <Text style={styles.homeLabel}>VIVIENDA</Text>
-            <Text style={styles.homeName}>Casa Roomie</Text>
+            <Text style={styles.homeName}>
+              {vivienda ? vivienda.nombre : 'Sin vivienda'}
+            </Text>
             <Text style={styles.homeMembers}>
-              {roommates.length} integrantes
+              {vivienda
+                ? `${roommates.length} ${
+                    roommates.length === 1 ? 'integrante' : 'integrantes'
+                  } · Toca para editar`
+                : 'Toca aquí para crear tu vivienda'}
             </Text>
           </View>
 
           <View style={styles.homeIcon}>
             <Text style={styles.houseIcon}>⌂</Text>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.infoCard}>
           <View style={styles.infoIcon}>
@@ -185,112 +412,79 @@ export default function RoommatesScreen() {
 
           <View style={styles.infoContent}>
             <Text style={styles.infoTitle}>
-              Invita a tus roomies
+              {vivienda ? 'Invita a tus roomies' : 'Empieza por tu vivienda'}
             </Text>
 
             <Text style={styles.infoText}>
-              Agrega a las personas con las que compartes
-              vivienda para organizar gastos y tareas.
+              {vivienda
+                ? 'Agrega a las personas con las que compartes vivienda para organizar gastos y tareas.'
+                : 'Ponle un nombre a tu vivienda y luego agrega a las personas con las que vives.'}
             </Text>
           </View>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            Integrantes
-          </Text>
-
-          <Text style={styles.count}>
-            {roommates.length}
-          </Text>
+          <Text style={styles.sectionTitle}>Integrantes</Text>
+          <Text style={styles.count}>{roommates.length}</Text>
         </View>
 
-        {roommates.map((roommate) => (
-          <View key={roommate.id} style={styles.roommateCard}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {roommate.name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
+        {roommates.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Todavía no hay integrantes</Text>
+            <Text style={styles.emptyText}>
+              Cuando crees tu vivienda aparecerás aquí como administrador.
+            </Text>
+          </View>
+        ) : (
+          roommates.map((roommate) => {
+            const isAdmin = roommate.id === uid;
 
-            <View style={styles.roommateInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.roommateName}>
-                  {roommate.name}
-                </Text>
+            return (
+              <View key={roommate.id} style={styles.roommateCard}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {(roommate.nombre || '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
 
-                {roommate.role === 'Administrador' && (
-                  <View style={styles.adminBadge}>
-                    <Text style={styles.adminText}>
-                      Admin
+                <View style={styles.roommateInfo}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.roommateName}>
+                      {roommate.nombre}
+                      {isAdmin ? ' (tú)' : ''}
                     </Text>
+
+                    {isAdmin && (
+                      <View style={styles.adminBadge}>
+                        <Text style={styles.adminText}>Admin</Text>
+                      </View>
+                    )}
                   </View>
+
+                  {roommate.email ? (
+                    <Text style={styles.email}>{roommate.email}</Text>
+                  ) : null}
+                </View>
+
+                {!isAdmin && (
+                  <Pressable
+                    style={styles.moreButton}
+                    onPress={() => showRoommateOptions(roommate)}
+                  >
+                    <Text style={styles.moreText}>•••</Text>
+                  </Pressable>
                 )}
               </View>
-
-              <Text style={styles.email}>
-                {roommate.email}
-              </Text>
-
-              <View style={styles.balanceRow}>
-                <Text style={styles.balanceLabel}>
-                  Balance:
-                </Text>
-
-                <Text
-                  style={[
-                    styles.balance,
-                    roommate.balance > 0
-                      ? styles.positive
-                      : roommate.balance < 0
-                      ? styles.negative
-                      : styles.neutral,
-                  ]}
-                >
-                  {formatCurrency(roommate.balance)}
-                </Text>
-              </View>
-            </View>
-
-            <Pressable
-              style={styles.moreButton}
-              onPress={() => {
-                if (roommate.role === 'Administrador') {
-                  Alert.alert(
-                    roommate.name,
-                    'Administrador de la vivienda'
-                  );
-                } else {
-                  Alert.alert(
-                    roommate.name,
-                    '¿Qué deseas hacer?',
-                    [
-                      {
-                        text: 'Cancelar',
-                        style: 'cancel',
-                      },
-                      {
-                        text: 'Eliminar',
-                        style: 'destructive',
-                        onPress: () =>
-                          removeRoommate(roommate),
-                      },
-                    ]
-                  );
-                }
-              }}
-            >
-              <Text style={styles.moreText}>•••</Text>
-            </Pressable>
-          </View>
-        ))}
+            );
+          })
+        )}
 
         <Pressable
           style={styles.inviteButton}
-          onPress={inviteRoommate}
+          onPress={vivienda ? openRoomieModal : openViviendaModal}
         >
           <Text style={styles.inviteButtonText}>
-            + Invitar roomie
+            {vivienda ? '+ Invitar roomie' : '+ Crear vivienda'}
           </Text>
         </Pressable>
       </ScrollView>
@@ -329,64 +523,106 @@ export default function RoommatesScreen() {
       <Modal
         animationType="slide"
         transparent
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        visible={modalMode !== null}
+        onRequestClose={closeModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                Invitar roomie
+                {modalMode === 'vivienda'
+                  ? vivienda
+                    ? 'Editar vivienda'
+                    : 'Crear vivienda'
+                  : 'Invitar roomie'}
               </Text>
 
-              <Pressable
-                onPress={() => setModalVisible(false)}
-              >
+              <Pressable onPress={closeModal}>
                 <Text style={styles.closeButton}>×</Text>
               </Pressable>
             </View>
 
-            <Text style={styles.modalDescription}>
-              Ingresa los datos de la persona que quieres
-              agregar a tu vivienda.
-            </Text>
+            {modalMode === 'vivienda' ? (
+              <>
+                <Text style={styles.modalDescription}>
+                  Así se llamará el hogar que compartes con tus roomies.
+                </Text>
 
-            <Text style={styles.label}>
-              Nombre
-            </Text>
+                <Text style={styles.label}>Nombre de la vivienda</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej: Apartamento Laureles"
+                  placeholderTextColor="#999"
+                  value={homeName}
+                  onChangeText={setHomeName}
+                  autoCapitalize="sentences"
+                />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre del roomie"
-              placeholderTextColor="#999"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-            />
+                <Text style={styles.label}>Dirección (opcional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej: Calle 10 # 20-30"
+                  placeholderTextColor="#999"
+                  value={homeAddress}
+                  onChangeText={setHomeAddress}
+                />
 
-            <Text style={styles.label}>
-              Correo electrónico
-            </Text>
+                <Pressable
+                  style={[styles.saveButton, saving && styles.disabled]}
+                  onPress={saveHome}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>
+                      {vivienda ? 'Guardar cambios' : 'Crear vivienda'}
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalDescription}>
+                  Ingresa los datos de la persona que quieres agregar a tu
+                  vivienda.
+                </Text>
 
-            <TextInput
-              style={styles.input}
-              placeholder="roomie@correo.com"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+                <Text style={styles.label}>Nombre</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nombre del roomie"
+                  placeholderTextColor="#999"
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                />
 
-            <Pressable
-              style={styles.saveButton}
-              onPress={addRoommate}
-            >
-              <Text style={styles.saveButtonText}>
-                Agregar roomie
-              </Text>
-            </Pressable>
+                <Text style={styles.label}>Correo electrónico</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="roomie@correo.com"
+                  placeholderTextColor="#999"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+
+                <Pressable
+                  style={[styles.saveButton, saving && styles.disabled]}
+                  onPress={addRoommate}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Agregar roomie</Text>
+                  )}
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -395,6 +631,50 @@ export default function RoommatesScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#777777',
+  },
+
+  homeTextContainer: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 17,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+
+  emptyTitle: {
+    color: '#111111',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  emptyText: {
+    color: '#777777',
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  disabled: {
+    opacity: 0.7,
+  },
+
   container: {
     flex: 1,
     backgroundColor: '#F7F7F7',
@@ -620,34 +900,6 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 10,
     marginTop: 3,
-  },
-
-  balanceRow: {
-    flexDirection: 'row',
-    marginTop: 5,
-  },
-
-  balanceLabel: {
-    color: '#999999',
-    fontSize: 10,
-  },
-
-  balance: {
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 4,
-  },
-
-  positive: {
-    color: '#38A169',
-  },
-
-  negative: {
-    color: '#E21B2D',
-  },
-
-  neutral: {
-    color: '#777777',
   },
 
   moreButton: {
